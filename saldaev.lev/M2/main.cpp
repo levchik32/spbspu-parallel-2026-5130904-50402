@@ -1,3 +1,7 @@
+#include <algorithm>
+#include <cmath>
+#include <iostream>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -15,7 +19,10 @@ namespace saldaev
 
   struct Shape
   {
-    Point position;
+    std::pair< long long, long long > position;
+    explicit Shape(std::pair< long long, long long > p):
+      position{p}
+    {}
     virtual bool contain(Point p) const noexcept = 0;
     virtual void rotate(double ksi) noexcept = 0;
     virtual Frame boundingFrame() const noexcept = 0;
@@ -26,27 +33,131 @@ namespace saldaev
 
   struct Circle: Shape
   {
-    double radius;
-    bool contain(Point p) const noexcept override;
+    long long radius;
+
+    Circle(long long r, std::pair< long long, long long > p):
+      Shape{p},
+      radius{r}
+    {}
+
+    bool contain(Point p) const noexcept override
+    {
+      double px = position.first;
+      double py = position.second;
+      return (p.x - px) * (p.x - px) + (p.y - py) * (p.y - py) <= radius * radius;
+    }
+
     void rotate(double ksi) noexcept override
     {}
-    Frame boundingFrame() const noexcept override;
-    std::string toRawData() const override;
-    std::string toOutputData() const override;
+
+    Frame boundingFrame() const noexcept override
+    {
+      double px = position.first;
+      double py = position.second;
+      return {{px - radius, py - radius}, {px + radius, py + radius}};
+    }
+
+    std::string toRawData() const override
+    {
+      std::string res = "C";
+      res += ' ' + std::to_string(radius);
+      res += ' ' + std::to_string(position.first);
+      res += ' ' + std::to_string(position.second);
+      return res;
+    }
+
+    std::string toOutputData() const override
+    {
+      std::string res = std::to_string(radius);
+      res += " (" + std::to_string(position.first);
+      res += ' ' + std::to_string(position.second) + ')';
+      return res;
+    }
   };
 
   struct Ellipse: Shape
   {
-    double rx, ry;
-    double angle = 0.0;
-    bool contain(Point p) const noexcept override;
-    void rotate(double ksi) noexcept override;
-    Frame boundingFrame() const noexcept override;
-    std::string toRawData() const override;
-    std::string toOutputData() const override;
+    long long radiusX, radiusY;
+    double angle;
+
+    Ellipse(long long rx, long long ry, std::pair< long long, long long > p, double a = 0.0):
+      Shape{p},
+      radiusX{rx},
+      radiusY{ry},
+      angle{a}
+    {}
+
+    bool contain(Point p) const noexcept override
+    {
+      double dx = p.x - position.first;
+      double dy = p.y - position.second;
+      double c = std::cos(angle);
+      double s = std::sin(angle);
+
+      double lx = c * dx + s * dy;
+      double ly = -s * dx + c * dy;
+
+      double u = lx / radiusX;
+      double v = ly / radiusY;
+      return u * u + v * v <= 1.0;
+    }
+
+    void rotate(double ksi) noexcept override
+    {
+      angle += ksi;
+    }
+
+    Frame boundingFrame() const noexcept override
+    {
+      double c = std::cos(angle);
+      double s = std::sin(angle);
+
+      double hw = std::sqrt((radiusX * c) * (radiusX * c) + (radiusY * s) * (radiusY * s));
+      double hh = std::sqrt((radiusX * s) * (radiusX * s) + (radiusY * c) * (radiusY * c));
+
+      double px = position.first;
+      double py = position.second;
+
+      return {{px - hw, py - hh}, {px + hw, py + hh}};
+    }
+
+    std::string toRawData() const override
+    {
+      std::string res = "E";
+      res += ' ' + std::to_string(radiusX);
+      res += ' ' + std::to_string(radiusY);
+      res += ' ' + std::to_string(position.first);
+      res += ' ' + std::to_string(position.second);
+      res += ' ' + std::to_string(angle);
+      return res;
+    }
+
+    std::string toOutputData() const override
+    {
+      std::string res = std::to_string(radiusX);
+      res += ' ' + std::to_string(radiusY);
+      res += " (" + std::to_string(position.first);
+      res += ' ' + std::to_string(position.second);
+      res += ") " + std::to_string(angle);
+      return res;
+    }
   };
 
-  Frame getBorders(const std::vector< Shape * > &circles);
+  Frame getBorders(const std::vector< Shape * > &shapes)
+  {
+    const double lim = std::numeric_limits< double >::infinity();
+
+    Point min{lim, lim};
+    Point max{-lim, -lim};
+
+    for (Shape *shape : shapes) {
+      Frame fr = shape->boundingFrame();
+      min = {std::min(min.x, fr.min.x), std::min(min.y, fr.min.y)};
+      max = {std::max(max.x, fr.max.x), std::max(max.y, fr.max.y)};
+    }
+
+    return {min, max};
+  }
 }
 
 int main()

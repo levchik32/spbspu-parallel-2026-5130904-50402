@@ -179,6 +179,11 @@ namespace saldaev
   void handleTimeout(std::istream &, std::ostream &, Shapes &, Sets &);
   void handleKill(std::istream &, std::ostream &, Shapes &, Sets &);
 
+  void printFrame(const Frame &fr, std::ostream &out)
+  {
+    out << "(" << static_cast< long long >(fr.min.x) << " " << static_cast< long long >(fr.min.y) << ") "
+        << "(" << static_cast< long long >(fr.max.x) << " " << static_cast< long long >(fr.max.y) << ")\n";
+  }
 }
 
 int main()
@@ -324,4 +329,39 @@ void saldaev::handleShowset(std::istream &in, std::ostream &out, Shapes &shapes,
   for (std::string str : it->second) {
     out << shapes.at(str)->toOutputData() << "\n";
   }
+}
+
+void saldaev::handleFrame(std::istream &in, std::ostream &out, Shapes &shapes, Sets &)
+{
+  std::string name;
+  in >> name;
+  if (in.eof()) {
+    return;
+  }
+  auto it = shapes.find(name);
+  if (in.fail() || it == shapes.end()) {
+    throw std::exception();
+  }
+
+  saldaev::printFrame(it->second->boundingFrame(), out);
+}
+
+void saldaev::handleFrameset(std::istream &in, std::ostream &out, Shapes &shapes, Sets &sets)
+{
+  std::string name;
+  in >> name;
+  if (in.eof()) {
+    return;
+  }
+  auto it = sets.find(name);
+  if (in.fail() || it == sets.end()) {
+    throw std::exception();
+  }
+
+  std::vector< Shape * > v;
+  for (std::string str : it->second) {
+    v.push_back(shapes[str].get());
+  }
+
+  saldaev::printFrame(saldaev::getBorders(v), out);
 }

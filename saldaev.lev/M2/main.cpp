@@ -2,6 +2,8 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <map>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -158,7 +160,65 @@ namespace saldaev
 
     return {min, max};
   }
+
+  using Shapes = std::map< std::string, std::unique_ptr< Shape > >;
+  using Sets = std::map< std::string, std::vector< std::string > >;
+
+  void handleCircle(std::istream &, std::ostream &, Shapes &, Sets &);
+  void handleEllipse(std::istream &, std::ostream &, Shapes &, Sets &);
+  void handleRotate(std::istream &, std::ostream &, Shapes &, Sets &);
+  void handleSet(std::istream &, std::ostream &, Shapes &, Sets &);
+  void handleShow(std::istream &, std::ostream &, Shapes &, Sets &);
+  void handleShowset(std::istream &, std::ostream &, Shapes &, Sets &);
+  void handleFrame(std::istream &, std::ostream &, Shapes &, Sets &);
+  void handleFrameset(std::istream &, std::ostream &, Shapes &, Sets &);
+  void handleSpawn(std::istream &, std::ostream &, Shapes &, Sets &);
+  void handleAreaOn(std::istream &, std::ostream &, Shapes &, Sets &);
+  void handleStatus(std::istream &, std::ostream &, Shapes &, Sets &);
+  void handleWait(std::istream &, std::ostream &, Shapes &, Sets &);
+  void handleTimeout(std::istream &, std::ostream &, Shapes &, Sets &);
+  void handleKill(std::istream &, std::ostream &, Shapes &, Sets &);
+
 }
 
 int main()
-{}
+{
+  using Command = void (*)(std::istream &, std::ostream &, saldaev::Shapes &, saldaev::Sets &);
+  using Commands = std::map< std::string, Command >;
+
+  Commands commands;
+  commands["circle"] = saldaev::handleCircle;
+  commands["ellipse"] = saldaev::handleEllipse;
+  commands["rotate"] = saldaev::handleRotate;
+  commands["set"] = saldaev::handleSet;
+  commands["show"] = saldaev::handleShow;
+  commands["showset"] = saldaev::handleShowset;
+  commands["frame"] = saldaev::handleFrame;
+  commands["frameset"] = saldaev::handleFrameset;
+  commands["spawn"] = saldaev::handleSpawn;
+  commands["area-on"] = saldaev::handleAreaOn;
+  commands["status"] = saldaev::handleStatus;
+  commands["wait"] = saldaev::handleWait;
+  commands["timeout"] = saldaev::handleTimeout;
+  commands["kill"] = saldaev::handleKill;
+
+  saldaev::Shapes shapes;
+  saldaev::Sets sets;
+
+  std::string cmd = "";
+  while (std::cin >> cmd) {
+
+    auto it = commands.find(cmd);
+    if (it != commands.end()) {
+      try {
+        it->second(std::cin, std::cout, shapes, sets);
+      } catch (const std::exception &e) {
+        std::cout << "<INVALID COMMAND>\n";
+      }
+    } else {
+      std::cout << "<UNKNOWN COMMAND>\n";
+    }
+    std::cin.clear();
+    std::cin.ignore(std::numeric_limits< std::streamsize >::max(), '\n');
+  }
+}

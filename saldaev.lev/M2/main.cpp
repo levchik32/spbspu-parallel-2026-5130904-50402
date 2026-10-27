@@ -212,7 +212,7 @@ int main()
     if (it != commands.end()) {
       try {
         it->second(std::cin, std::cout, shapes, sets);
-      } catch (const std::exception &e) {
+      } catch (const std::exception &) {
         std::cout << "<INVALID COMMAND>\n";
       }
     } else {
@@ -221,4 +221,47 @@ int main()
     std::cin.clear();
     std::cin.ignore(std::numeric_limits< std::streamsize >::max(), '\n');
   }
+}
+
+void saldaev::handleCircle(std::istream &in, std::ostream &, Shapes &shapes, Sets &)
+{
+  std::string name;
+  long long r, x, y;
+  in >> name >> r >> x >> y;
+  if (in.eof()) {
+    return;
+  }
+  if (in.fail() || r <= 0 || shapes.find(name) != shapes.end()) {
+    throw std::exception();
+  }
+  shapes[name] = std::make_unique< Circle >(r, std::make_pair(x, y));
+}
+
+void saldaev::handleEllipse(std::istream &in, std::ostream &, Shapes &shapes, Sets &)
+{
+  std::string name;
+  long long rx, ry, x, y;
+  in >> name >> rx >> ry >> x >> y;
+  if (in.eof()) {
+    return;
+  }
+  if (in.fail() || rx <= 0 || ry <= 0 || shapes.find(name) != shapes.end()) {
+    throw std::exception();
+  }
+  shapes[name] = std::make_unique< Ellipse >(rx, ry, std::make_pair(x, y));
+}
+
+void saldaev::handleRotate(std::istream &in, std::ostream &, Shapes &shapes, Sets &)
+{
+  std::string name;
+  double ksi;
+  in >> name >> ksi;
+  if (in.eof()) {
+    return;
+  }
+  auto it = shapes.find(name);
+  if (in.fail() || it == shapes.end()) {
+    throw std::exception();
+  }
+  it->second->rotate(ksi);
 }

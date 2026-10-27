@@ -265,3 +265,63 @@ void saldaev::handleRotate(std::istream &in, std::ostream &, Shapes &shapes, Set
   }
   it->second->rotate(ksi);
 }
+
+void saldaev::handleSet(std::istream &in, std::ostream &, Shapes &shapes, Sets &sets)
+{
+  std::string name;
+  size_t n;
+  in >> name >> n;
+  if (in.eof()) {
+    return;
+  }
+  if (in.fail() || sets.find(name) != sets.end()) {
+    throw std::exception();
+  }
+  std::string shape;
+  std::vector< std::string > v;
+  for (size_t i = 0; i < n; ++i) {
+    in >> shape;
+    if (shapes.find(shape) != shapes.end()) {
+      v.push_back(shape);
+    } else {
+      throw std::exception();
+    }
+  }
+  if (in.eof()) {
+    return;
+  }
+
+  sets[name] = v;
+}
+
+void saldaev::handleShow(std::istream &in, std::ostream &out, Shapes &shapes, Sets &)
+{
+  std::string name;
+  in >> name;
+  if (in.eof()) {
+    return;
+  }
+  auto it = shapes.find(name);
+  if (in.fail() || it == shapes.end()) {
+    throw std::exception();
+  }
+
+  out << it->second->toOutputData() << "\n";
+}
+
+void saldaev::handleShowset(std::istream &in, std::ostream &out, Shapes &shapes, Sets &sets)
+{
+  std::string name;
+  in >> name;
+  if (in.eof()) {
+    return;
+  }
+  auto it = sets.find(name);
+  if (in.fail() || it == sets.end()) {
+    throw std::exception();
+  }
+
+  for (std::string str : it->second) {
+    out << shapes.at(str)->toOutputData() << "\n";
+  }
+}

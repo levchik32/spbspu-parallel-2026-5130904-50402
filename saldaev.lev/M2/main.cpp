@@ -168,11 +168,19 @@ namespace saldaev
     long long elapsed_ms;
   };
 
+  struct ProcessState
+  {
+    Calculations *calcs;
+    int write_fd;
+    int read_fd;
+    pid_t pid;
+  };
+
   using Calculations = std::map< long long, Calculation >;
-  using Processes = std::map< std::string, std::pair< Calculations *, int > >;
+  using Processes = std::map< std::string, ProcessState >;
   using Shapes = std::map< std::string, std::unique_ptr< Shape > >;
   using Sets = std::map< std::string, std::vector< std::string > >;
-  using ShapeVector = ShapeVector;
+  using ShapeVector = std::vector< std::unique_ptr< Shape > >;
 
   struct GlobalData
   {
@@ -283,7 +291,7 @@ namespace saldaev
   void workerLoop(size_t seed)
   {
     long long id;
-    while (std::cin >> id && id != -1) {
+    while (std::cin >> id) {
       ShapeVector shapes;
       std::string type;
       long long n, x, y, rx, ry;
@@ -293,14 +301,23 @@ namespace saldaev
         std::cin >> type;
         if (type == "C") {
           std::cin >> rx >> x >> y;
+          if (std::cin.fail()) {
+            return;
+          }
           shapes.push_back(std::make_unique< Circle >(rx, std::make_pair(x, y)));
         } else if (type == "E") {
           std::cin >> rx >> ry >> x >> y >> a;
+          if (std::cin.fail()) {
+            return;
+          }
           shapes.push_back(std::make_unique< Ellipse >(rx, ry, std::make_pair(x, y), a));
         }
       }
       long long threads, tries;
       std::cin >> threads >> tries;
+      if (std::cin.fail()) {
+        return;
+      }
 
       auto start = std::chrono::steady_clock::now();
 
@@ -493,11 +510,17 @@ namespace saldaev
       workerLoop(seed);
       _exit(0);
     } else if (pid > 0) {
-      close(data_pipe[0]);
       close(results_pipe[1]);
 
       Calculations *calcs = new Calculations();
-      globalData.processes[name] = std::make_pair(calcs, data_pipe[1]);
+
+      ProcessState state;
+      state.calcs = calcs;
+      state.write_fd = data_pipe[1];
+      state.read_fd = data_pipe[0];
+      state.pid = pid;
+
+      globalData.processes[name] = state;
 
       std::thread(readerLoop, results_pipe[0], calcs).detach();
     } else {

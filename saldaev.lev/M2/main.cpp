@@ -337,6 +337,24 @@ namespace saldaev
 
   void readerLoop(int fd, Calculations *calcs);
 
+  bool send_data(int fd, const std::string &data)
+  {
+    size_t total_sent = 0;
+    while (total_sent < data.size()) {
+      ssize_t sent = write(fd, data.c_str() + total_sent, data.size() - total_sent);
+
+      if (sent == -1) {
+        if (errno == EINTR) {
+          continue;
+        }
+        return false;
+      }
+
+      total_sent += sent;
+    }
+    return true;
+  }
+
   void handleCircle(std::istream &in, std::ostream &, GlobalData &globalData)
   {
     std::string name;
@@ -532,7 +550,44 @@ namespace saldaev
     }
   }
 
-  void handleAreaOn(std::istream &, std::ostream &, GlobalData &);
+  void handleAreaOn(std::istream &in, std::ostream &, GlobalData &globalData)
+  {
+    std::string pName, cName, sName;
+    size_t threads, tries;
+    in >> pName >> cName >> sName >> threads >> tries;
+    if (in.eof()) {
+      return;
+    }
+    auto itP = globalData.processes.find(pName);
+    auto itS = globalData.sets.find(sName);
+    if (in.fail() || itP == globalData.processes.end() || itS == globalData.sets.end()) {
+      throw std::exception();
+    }
+    if (globalData.name_to_id.find(cName) != globalData.name_to_id.end()) {
+      throw std::exception();
+    }
+
+    long long id = globalData.global_calc_id++;
+    globalData.name_to_id[cName] = id;
+    (*itP->second.calcs)[id] = {CalcStatus::QUEUED, 0.0, 0.0, 0};
+
+    int fd = itP->second.write_fd;
+
+    std::string payload;
+    payload += std::to_string(id) + ' ' + std::to_string(itS->second.size()) + '\n';
+
+    for (const std::string &shape_name : itS->second) {
+      payload += globalData.shapes.at(shape_name)->toRawData() + '\n';
+    }
+
+    payload += std::to_string(threads) + ' ' + std::to_string(tries) + '\n';
+
+    if (!send_data(fd, payload)) {
+      (*itP->second.calcs)[id].status = CalcStatus::CANCELED;
+      throw std::exception();
+    }
+  }
+
   void handleStatus(std::istream &, std::ostream &, GlobalData &);
   void handleWait(std::istream &, std::ostream &, GlobalData &);
   void handleTimeout(std::istream &, std::ostream &, GlobalData &);

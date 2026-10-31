@@ -1,10 +1,13 @@
 #include <algorithm>
 #include <cmath>
+#include <csignal>
 #include <iostream>
 #include <limits>
 #include <map>
 #include <memory>
 #include <string>
+#include <thread>
+#include <unistd.h>
 #include <vector>
 
 namespace saldaev
@@ -144,6 +147,28 @@ namespace saldaev
       return res;
     }
   };
+
+  enum class CalcStatus { QUEUED, IN_PROGRESS, DONE, CANCELED };
+
+  struct Calculation
+  {
+    volatile CalcStatus status;
+    double area;
+    double intersection;
+    long long elapsed_ms;
+  };
+
+  struct ResultMsg
+  {
+    long long calc_id;
+    double area;
+    double intersection;
+    long long elapsed_ms;
+  };
+
+  using Calculations = std::map< long long, Calculation >;
+  using Processes = std::map< std::string, std::pair< Calculations *, int > >;
+  using Name_to_id = std::map< std::string, long long >;
 
   Frame getBorders(const std::vector< Shape * > &shapes)
   {

@@ -219,8 +219,10 @@ namespace saldaev
   void handleTimeout(std::istream &, std::ostream &, GlobalData &);
   void handleKill(std::istream &, std::ostream &, GlobalData &);
 
-  void beCalculator();
+  void workerLoop(size_t seed);
   void readerLoop(int fd, Calculations *calcs);
+  std::pair< double, double > area(std::vector< std::unique_ptr< Shape > > &shapes, size_t threads, size_t tries,
+                                   size_t seed);
 }
 
 int main()
@@ -435,7 +437,7 @@ void saldaev::handleSpawn(std::istream &in, std::ostream &, GlobalData &globalDa
       _exit(1);
     }
 
-    beCalculator();
+    workerLoop(seed);
     _exit(0);
   } else if (pid > 0) {
     close(data_pipe[0]);
@@ -451,5 +453,43 @@ void saldaev::handleSpawn(std::istream &in, std::ostream &, GlobalData &globalDa
     close(results_pipe[0]);
     close(results_pipe[1]);
     throw std::exception();
+  }
+}
+
+void saldaev::workerLoop(size_t seed)
+{
+  long long id;
+  while (std::cin >> id && id != -1) {
+    std::vector< std::unique_ptr< Shape > > shapes;
+    std::string type;
+    long long n, x, y, rx, ry;
+    double a;
+    std::cin >> n;
+    for (size_t i = 0; i < n; ++i) {
+      std::cin >> type;
+      if (type == "C") {
+        std::cin >> rx >> x >> y;
+        shapes.push_back(std::make_unique< Circle >(rx, std::make_pair(x, y)));
+      } else if (type == "E") {
+        std::cin >> rx >> ry >> x >> y >> a;
+        shapes.push_back(std::make_unique< Ellipse >(rx, ry, std::make_pair(x, y), a));
+      }
+    }
+    long long threads, tries;
+    std::cin >> threads >> tries;
+
+    auto start = std::chrono::steady_clock::now();
+
+    std::pair< double, double > result = area(shapes, threads, tries, seed);
+
+    auto end = std::chrono::steady_clock::now();
+
+    ResultMsg msg;
+    msg.calc_id = id;
+    msg.area = result.first;
+    msg.intersection = result.second;
+    msg.elapsed_ms = std::chrono::duration_cast< std::chrono::milliseconds >(end - start).count();
+    std::cout.write(reinterpret_cast< const char * >(&msg), sizeof(ResultMsg));
+    std::cout.flush();
   }
 }

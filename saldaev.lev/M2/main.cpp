@@ -1,10 +1,12 @@
 #include <algorithm>
 #include <cmath>
 #include <csignal>
+#include <future>
 #include <iostream>
 #include <limits>
 #include <map>
 #include <memory>
+#include <random>
 #include <string>
 #include <thread>
 #include <unistd.h>
@@ -186,6 +188,22 @@ namespace saldaev
     return {min, max};
   }
 
+  Frame getBorders(std::vector< std::unique_ptr< Shape > > &shapes)
+  {
+    const double lim = std::numeric_limits< double >::infinity();
+
+    Point min{lim, lim};
+    Point max{-lim, -lim};
+
+    for (auto &shape : shapes) {
+      Frame fr = shape->boundingFrame();
+      min = {std::min(min.x, fr.min.x), std::min(min.y, fr.min.y)};
+      max = {std::max(max.x, fr.max.x), std::max(max.y, fr.max.y)};
+    }
+
+    return {min, max};
+  }
+
   void printFrame(const Frame &fr, std::ostream &out)
   {
     out << "(" << static_cast< long long >(fr.min.x) << " " << static_cast< long long >(fr.min.y) << ") "
@@ -223,6 +241,8 @@ namespace saldaev
   void readerLoop(int fd, Calculations *calcs);
   std::pair< double, double > area(std::vector< std::unique_ptr< Shape > > &shapes, size_t threads, size_t tries,
                                    size_t seed);
+  std::pair< size_t, size_t > calculate(Frame frame, const std::vector< std::unique_ptr< Shape > > &shapes,
+                                        size_t tries, size_t seed);
 }
 
 int main()
@@ -492,4 +512,65 @@ void saldaev::workerLoop(size_t seed)
     std::cout.write(reinterpret_cast< const char * >(&msg), sizeof(ResultMsg));
     std::cout.flush();
   }
+}
+
+std::pair< double, double > saldaev::area(std::vector< std::unique_ptr< Shape > > &shapes, size_t threads, size_t tries,
+                                          size_t seed)
+{
+  std::vector< std::future< std::pair< size_t, size_t > > > futures;
+
+  const size_t tries_per_thread = tries / threads;
+  const size_t remainder = tries % threads;
+
+  Frame frame = getBorders(shapes);
+  for (size_t i = 0; i < threads; ++i) {
+    size_t part = tries_per_thread + (i < remainder ? 1 : 0);
+    futures.push_back(std::async(std::launch::async, calculate, frame, std::cref(shapes), part, seed + i));
+  }
+
+  size_t hits = 0;
+  size_t complete_hits = 0;
+  for (size_t i = 0; i < threads; i++) {
+    const std::pair< size_t, size_t > res = futures[i].get();
+    hits += res.first;
+    complete_hits += res.second;
+  }
+
+  const double frame_area = (frame.max.x - frame.min.x) * (frame.max.y - frame.min.y);
+  return {frame_area * (static_cast< double >(hits) / tries),
+          frame_area * (static_cast< double >(complete_hits) / tries)};
+}
+
+std::pair< size_t, size_t > saldaev::calculate(Frame frame, const std::vector< std::unique_ptr< Shape > > &shapes,
+                                               size_t tries, size_t seed)
+{
+  std::default_random_engine gen(seed);
+  std::uniform_real_distribution< double > width(frame.min.x, frame.max.x);
+  std::uniform_real_distribution< double > hight(frame.min.y, frame.max.y);
+
+  size_t hits = 0;
+  size_t complete_hits = 0;
+
+  for (size_t i = 0; i < tries; ++i) {
+    const Point p{width(gen), hight(gen)};
+    bool in_all = true;
+    bool in_any = false;
+
+    for (size_t j = 0; j < shapes.size(); ++j) {
+      if (shapes[j]->contain(p)) {
+        in_any = true;
+      } else {
+        in_all = false;
+      }
+    }
+
+    if (in_any) {
+      hits++;
+      if (in_all) {
+        complete_hits++;
+      }
+    }
+  }
+
+  return {hits, complete_hits};
 }

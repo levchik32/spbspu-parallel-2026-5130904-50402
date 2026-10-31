@@ -1,6 +1,7 @@
 #include <algorithm>
 #include <cmath>
 #include <csignal>
+#include <fcntl.h>
 #include <future>
 #include <iostream>
 #include <limits>
@@ -164,7 +165,6 @@ namespace saldaev
   {
     long long calc_id;
     double area;
-    double intersection;
     long long elapsed_ms;
   };
 
@@ -178,6 +178,12 @@ namespace saldaev
     pid_t pid;
   };
 
+  struct CalcRef
+  {
+    long long id;
+    std::string proc_name;
+  };
+
   using Processes = std::map< std::string, ProcessState >;
   using Shapes = std::map< std::string, std::unique_ptr< Shape > >;
   using Sets = std::map< std::string, std::vector< std::string > >;
@@ -188,7 +194,7 @@ namespace saldaev
     Shapes shapes;
     Sets sets;
     Processes processes;
-    std::map< std::string, long long > name_to_id;
+    std::map< std::string, CalcRef > calc_registry;
     long long global_calc_id = 0;
   };
 
@@ -230,42 +236,31 @@ namespace saldaev
         << "(" << static_cast< long long >(fr.max.x) << " " << static_cast< long long >(fr.max.y) << ")\n";
   }
 
-  std::pair< size_t, size_t > calculate(Frame frame, const ShapeVector &shapes, size_t tries, size_t seed)
+  size_t calculate(Frame frame, const ShapeVector &shapes, size_t tries, size_t seed)
   {
     std::default_random_engine gen(seed);
     std::uniform_real_distribution< double > width(frame.min.x, frame.max.x);
     std::uniform_real_distribution< double > hight(frame.min.y, frame.max.y);
 
     size_t hits = 0;
-    size_t complete_hits = 0;
 
     for (size_t i = 0; i < tries; ++i) {
       const Point p{width(gen), hight(gen)};
-      bool in_all = true;
-      bool in_any = false;
 
       for (size_t j = 0; j < shapes.size(); ++j) {
         if (shapes[j]->contain(p)) {
-          in_any = true;
-        } else {
-          in_all = false;
-        }
-      }
-
-      if (in_any) {
-        hits++;
-        if (in_all) {
-          complete_hits++;
+          hits++;
+          break;
         }
       }
     }
 
-    return {hits, complete_hits};
+    return hits;
   }
 
-  std::pair< double, double > area(ShapeVector &shapes, size_t threads, size_t tries, size_t seed)
+  double area(ShapeVector &shapes, size_t threads, size_t tries, size_t seed)
   {
-    std::vector< std::future< std::pair< size_t, size_t > > > futures;
+    std::vector< std::future< size_t > > futures;
 
     const size_t tries_per_thread = tries / threads;
     const size_t remainder = tries % threads;
@@ -277,16 +272,12 @@ namespace saldaev
     }
 
     size_t hits = 0;
-    size_t complete_hits = 0;
     for (size_t i = 0; i < threads; i++) {
-      const std::pair< size_t, size_t > res = futures[i].get();
-      hits += res.first;
-      complete_hits += res.second;
+      hits += futures[i].get();
     }
 
     const double frame_area = (frame.max.x - frame.min.x) * (frame.max.y - frame.min.y);
-    return {frame_area * (static_cast< double >(hits) / tries),
-            frame_area * (static_cast< double >(complete_hits) / tries)};
+    return {frame_area * (static_cast< double >(hits) / tries)};
   }
 
   void workerLoop(size_t seed)
@@ -325,14 +316,13 @@ namespace saldaev
 
       auto start = std::chrono::steady_clock::now();
 
-      std::pair< double, double > result = area(shapes, threads, tries, seed);
+      double result = area(shapes, threads, tries, seed);
 
       auto end = std::chrono::steady_clock::now();
 
       ResultMsg msg;
       msg.calc_id = id;
-      msg.area = result.first;
-      msg.intersection = result.second;
+      msg.area = result;
       msg.elapsed_ms = std::chrono::duration_cast< std::chrono::milliseconds >(end - start).count();
       std::cout.write(reinterpret_cast< const char * >(&msg), sizeof(ResultMsg));
       std::cout.flush();
@@ -380,7 +370,6 @@ namespace saldaev
       }
 
       calc.area = msg.area;
-      calc.intersection = msg.intersection;
       calc.elapsed_ms = msg.elapsed_ms;
 
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
@@ -404,6 +393,20 @@ namespace saldaev
       total_sent += sent;
     }
     return true;
+  }
+
+  void clear_pipe(int fd)
+  {
+    int flags = fcntl(fd, F_GETFL, 0);
+    fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+
+    char buf[1024];
+    while (true) {
+      ssize_t n = read(fd, buf, sizeof(buf));
+      if (n <= 0) {
+        break;
+      }
+    }
   }
 
   void handleCircle(std::istream &in, std::ostream &, GlobalData &globalData)
@@ -614,13 +617,13 @@ namespace saldaev
     if (in.fail() || itP == globalData.processes.end() || itS == globalData.sets.end()) {
       throw std::exception();
     }
-    if (globalData.name_to_id.find(cName) != globalData.name_to_id.end()) {
+    if (globalData.calc_registry.find(cName) != globalData.calc_registry.end()) {
       throw std::exception();
     }
 
     long long id = globalData.global_calc_id++;
-    globalData.name_to_id[cName] = id;
-    (*itP->second.calcs)[id] = {CalcStatus::QUEUED, 0.0, 0.0, 0};
+    globalData.calc_registry[cName] = {id, pName};
+    (*itP->second.calcs)[id] = {CalcStatus::QUEUED, 0.0, 0};
 
     int fd = itP->second.write_fd;
 
@@ -639,10 +642,113 @@ namespace saldaev
     }
   }
 
-  void handleStatus(std::istream &, std::ostream &, GlobalData &);
-  void handleWait(std::istream &, std::ostream &, GlobalData &);
-  void handleTimeout(std::istream &, std::ostream &, GlobalData &);
-  void handleKill(std::istream &, std::ostream &, GlobalData &);
+  void handleStatus(std::istream &in, std::ostream &out, GlobalData &globalData)
+  {
+    std::string name;
+    in >> name;
+    if (in.eof()) {
+      return;
+    }
+    if (in.fail() || globalData.calc_registry.find(name) == globalData.calc_registry.end()) {
+      throw std::exception();
+    }
+
+    size_t id = globalData.calc_registry.at(name).id;
+    std::string proc = globalData.calc_registry.at(name).proc_name;
+    Calculation calc = globalData.processes.at(proc).calcs->at(id);
+
+    if (calc.status == CalcStatus::IN_PROGRESS) {
+      out << proc << " <IN PROGRESS>\n";
+    } else if (calc.status == CalcStatus::DONE) {
+      out << proc << ' ' << calc.elapsed_ms << ' ' << calc.area << '\n';
+    } else {
+      throw std::exception();
+    }
+  }
+
+  void handleWait(std::istream &in, std::ostream &out, GlobalData &globalData)
+  {
+    std::string name;
+    in >> name;
+    if (in.eof()) {
+      return;
+    }
+    if (in.fail() || globalData.calc_registry.find(name) == globalData.calc_registry.end()) {
+      throw std::exception();
+    }
+
+    size_t id = globalData.calc_registry.at(name).id;
+    std::string proc = globalData.calc_registry.at(name).proc_name;
+    Calculation calc = globalData.processes.at(proc).calcs->at(id);
+
+    if (calc.status == CalcStatus::QUEUED) {
+      throw std::exception();
+    }
+
+    while (calc.status != CalcStatus::DONE) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    out << proc << ' ' << calc.elapsed_ms << ' ' << calc.area << '\n';
+  }
+
+  void handleTimeout(std::istream &in, std::ostream &out, GlobalData &globalData)
+  {
+    std::string name;
+    size_t waitTime;
+    in >> name >> waitTime;
+    if (in.eof()) {
+      return;
+    }
+    if (in.fail() || globalData.calc_registry.find(name) == globalData.calc_registry.end()) {
+      throw std::exception();
+    }
+
+    size_t id = globalData.calc_registry.at(name).id;
+    std::string proc = globalData.calc_registry.at(name).proc_name;
+    Calculation calc = globalData.processes.at(proc).calcs->at(id);
+
+    if (calc.status == CalcStatus::QUEUED) {
+      throw std::exception();
+    }
+
+    size_t timePassed = 0;
+    while (calc.status != CalcStatus::DONE || timePassed < waitTime) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      timePassed += 10;
+    }
+    if (calc.status != CalcStatus::DONE) {
+      out << proc << " <IN PROGRESS>\n";
+    }
+    out << proc << ' ' << calc.elapsed_ms << ' ' << calc.area << '\n';
+  }
+
+  void handleKill(std::istream &in, std::ostream &, GlobalData &globalData)
+  {
+    std::string name;
+    in >> name;
+    if (in.eof()) {
+      return;
+    }
+    if (in.fail() || globalData.processes.find(name) == globalData.processes.end()) {
+      throw std::exception();
+    }
+
+    ProcessState &proc = globalData.processes.at(name);
+
+    clear_pipe(proc.read_fd);
+
+    const char *kill_msg = "die pls\n";
+    write(proc.write_fd, kill_msg, 7);
+
+    for (auto &pair : *(proc.calcs)) {
+      if (pair.second.status == CalcStatus::QUEUED) {
+        pair.second.status = CalcStatus::CANCELED;
+      }
+    }
+
+    close(proc.read_fd);
+    close(proc.write_fd);
+  }
 }
 
 int main()

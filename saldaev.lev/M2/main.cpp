@@ -161,34 +161,47 @@ namespace saldaev
     return {min, max};
   }
 
-  using Shapes = std::map< std::string, std::unique_ptr< Shape > >;
-  using Sets = std::map< std::string, std::vector< std::string > >;
-
-  void handleCircle(std::istream &, std::ostream &, Shapes &, Sets &);
-  void handleEllipse(std::istream &, std::ostream &, Shapes &, Sets &);
-  void handleRotate(std::istream &, std::ostream &, Shapes &, Sets &);
-  void handleSet(std::istream &, std::ostream &, Shapes &, Sets &);
-  void handleShow(std::istream &, std::ostream &, Shapes &, Sets &);
-  void handleShowset(std::istream &, std::ostream &, Shapes &, Sets &);
-  void handleFrame(std::istream &, std::ostream &, Shapes &, Sets &);
-  void handleFrameset(std::istream &, std::ostream &, Shapes &, Sets &);
-  void handleSpawn(std::istream &, std::ostream &, Shapes &, Sets &);
-  void handleAreaOn(std::istream &, std::ostream &, Shapes &, Sets &);
-  void handleStatus(std::istream &, std::ostream &, Shapes &, Sets &);
-  void handleWait(std::istream &, std::ostream &, Shapes &, Sets &);
-  void handleTimeout(std::istream &, std::ostream &, Shapes &, Sets &);
-  void handleKill(std::istream &, std::ostream &, Shapes &, Sets &);
-
   void printFrame(const Frame &fr, std::ostream &out)
   {
     out << "(" << static_cast< long long >(fr.min.x) << " " << static_cast< long long >(fr.min.y) << ") "
         << "(" << static_cast< long long >(fr.max.x) << " " << static_cast< long long >(fr.max.y) << ")\n";
   }
+
+  using Shapes = std::map< std::string, std::unique_ptr< Shape > >;
+  using Sets = std::map< std::string, std::vector< std::string > >;
+
+  struct GlobalData
+  {
+    Shapes shapes;
+    Sets sets;
+    Processes processes;
+    std::map< std::string, long long > name_to_id;
+    long long global_calc_id = 0;
+  };
+
+  void handleCircle(std::istream &, std::ostream &, GlobalData &);
+  void handleEllipse(std::istream &, std::ostream &, GlobalData &);
+  void handleRotate(std::istream &, std::ostream &, GlobalData &);
+  void handleSet(std::istream &, std::ostream &, GlobalData &);
+  void handleShow(std::istream &, std::ostream &, GlobalData &);
+  void handleShowset(std::istream &, std::ostream &, GlobalData &);
+  void handleFrame(std::istream &, std::ostream &, GlobalData &);
+  void handleFrameset(std::istream &, std::ostream &, GlobalData &);
+  void handleSpawn(std::istream &, std::ostream &, GlobalData &);
+  void handleAreaOn(std::istream &, std::ostream &, GlobalData &);
+  void handleStatus(std::istream &, std::ostream &, GlobalData &);
+  void handleWait(std::istream &, std::ostream &, GlobalData &);
+  void handleTimeout(std::istream &, std::ostream &, GlobalData &);
+  void handleKill(std::istream &, std::ostream &, GlobalData &);
+
+  void beCalculator();
+  void readerLoop(int fd, Calculations *calcs);
 }
 
 int main()
 {
-  using Command = void (*)(std::istream &, std::ostream &, saldaev::Shapes &, saldaev::Sets &);
+  std::signal(SIGPIPE, SIG_IGN);
+  using Command = void (*)(std::istream &, std::ostream &, saldaev::GlobalData &);
   using Commands = std::map< std::string, Command >;
 
   Commands commands;
@@ -207,8 +220,7 @@ int main()
   commands["timeout"] = saldaev::handleTimeout;
   commands["kill"] = saldaev::handleKill;
 
-  saldaev::Shapes shapes;
-  saldaev::Sets sets;
+  saldaev::GlobalData globalData;
 
   std::string cmd = "";
   while (std::cin >> cmd) {
@@ -216,7 +228,7 @@ int main()
     auto it = commands.find(cmd);
     if (it != commands.end()) {
       try {
-        it->second(std::cin, std::cout, shapes, sets);
+        it->second(std::cin, std::cout, globalData);
       } catch (const std::exception &) {
         std::cout << "<INVALID COMMAND>\n";
       }
@@ -228,7 +240,7 @@ int main()
   }
 }
 
-void saldaev::handleCircle(std::istream &in, std::ostream &, Shapes &shapes, Sets &)
+void saldaev::handleCircle(std::istream &in, std::ostream &, GlobalData &globalData)
 {
   std::string name;
   long long r, x, y;
@@ -236,13 +248,13 @@ void saldaev::handleCircle(std::istream &in, std::ostream &, Shapes &shapes, Set
   if (in.eof()) {
     return;
   }
-  if (in.fail() || r <= 0 || shapes.find(name) != shapes.end()) {
+  if (in.fail() || r <= 0 || globalData.shapes.find(name) != globalData.shapes.end()) {
     throw std::exception();
   }
-  shapes[name] = std::make_unique< Circle >(r, std::make_pair(x, y));
+  globalData.shapes[name] = std::make_unique< Circle >(r, std::make_pair(x, y));
 }
 
-void saldaev::handleEllipse(std::istream &in, std::ostream &, Shapes &shapes, Sets &)
+void saldaev::handleEllipse(std::istream &in, std::ostream &, GlobalData &globalData)
 {
   std::string name;
   long long rx, ry, x, y;
@@ -250,13 +262,13 @@ void saldaev::handleEllipse(std::istream &in, std::ostream &, Shapes &shapes, Se
   if (in.eof()) {
     return;
   }
-  if (in.fail() || rx <= 0 || ry <= 0 || shapes.find(name) != shapes.end()) {
+  if (in.fail() || rx <= 0 || ry <= 0 || globalData.shapes.find(name) != globalData.shapes.end()) {
     throw std::exception();
   }
-  shapes[name] = std::make_unique< Ellipse >(rx, ry, std::make_pair(x, y));
+  globalData.shapes[name] = std::make_unique< Ellipse >(rx, ry, std::make_pair(x, y));
 }
 
-void saldaev::handleRotate(std::istream &in, std::ostream &, Shapes &shapes, Sets &)
+void saldaev::handleRotate(std::istream &in, std::ostream &, GlobalData &globalData)
 {
   std::string name;
   double ksi;
@@ -264,14 +276,14 @@ void saldaev::handleRotate(std::istream &in, std::ostream &, Shapes &shapes, Set
   if (in.eof()) {
     return;
   }
-  auto it = shapes.find(name);
-  if (in.fail() || it == shapes.end()) {
+  auto it = globalData.shapes.find(name);
+  if (in.fail() || it == globalData.shapes.end()) {
     throw std::exception();
   }
   it->second->rotate(ksi);
 }
 
-void saldaev::handleSet(std::istream &in, std::ostream &, Shapes &shapes, Sets &sets)
+void saldaev::handleSet(std::istream &in, std::ostream &, GlobalData &globalData)
 {
   std::string name;
   size_t n;
@@ -279,14 +291,14 @@ void saldaev::handleSet(std::istream &in, std::ostream &, Shapes &shapes, Sets &
   if (in.eof()) {
     return;
   }
-  if (in.fail() || sets.find(name) != sets.end()) {
+  if (in.fail() || globalData.sets.find(name) != globalData.sets.end()) {
     throw std::exception();
   }
   std::string shape;
   std::vector< std::string > v;
   for (size_t i = 0; i < n; ++i) {
     in >> shape;
-    if (shapes.find(shape) != shapes.end()) {
+    if (globalData.shapes.find(shape) != globalData.shapes.end()) {
       v.push_back(shape);
     } else {
       throw std::exception();
@@ -296,71 +308,71 @@ void saldaev::handleSet(std::istream &in, std::ostream &, Shapes &shapes, Sets &
     return;
   }
 
-  sets[name] = v;
+  globalData.sets[name] = v;
 }
 
-void saldaev::handleShow(std::istream &in, std::ostream &out, Shapes &shapes, Sets &)
+void saldaev::handleShow(std::istream &in, std::ostream &out, GlobalData &globalData)
 {
   std::string name;
   in >> name;
   if (in.eof()) {
     return;
   }
-  auto it = shapes.find(name);
-  if (in.fail() || it == shapes.end()) {
+  auto it = globalData.shapes.find(name);
+  if (in.fail() || it == globalData.shapes.end()) {
     throw std::exception();
   }
 
   out << it->second->toOutputData() << "\n";
 }
 
-void saldaev::handleShowset(std::istream &in, std::ostream &out, Shapes &shapes, Sets &sets)
+void saldaev::handleShowset(std::istream &in, std::ostream &out, GlobalData &globalData)
 {
   std::string name;
   in >> name;
   if (in.eof()) {
     return;
   }
-  auto it = sets.find(name);
-  if (in.fail() || it == sets.end()) {
+  auto it = globalData.sets.find(name);
+  if (in.fail() || it == globalData.sets.end()) {
     throw std::exception();
   }
 
   for (std::string str : it->second) {
-    out << shapes.at(str)->toOutputData() << "\n";
+    out << globalData.shapes.at(str)->toOutputData() << "\n";
   }
 }
 
-void saldaev::handleFrame(std::istream &in, std::ostream &out, Shapes &shapes, Sets &)
+void saldaev::handleFrame(std::istream &in, std::ostream &out, GlobalData &globalData)
 {
   std::string name;
   in >> name;
   if (in.eof()) {
     return;
   }
-  auto it = shapes.find(name);
-  if (in.fail() || it == shapes.end()) {
+  auto it = globalData.shapes.find(name);
+  if (in.fail() || it == globalData.shapes.end()) {
     throw std::exception();
   }
 
   saldaev::printFrame(it->second->boundingFrame(), out);
 }
 
-void saldaev::handleFrameset(std::istream &in, std::ostream &out, Shapes &shapes, Sets &sets)
+void saldaev::handleFrameset(std::istream &in, std::ostream &out, GlobalData &globalData)
 {
   std::string name;
   in >> name;
   if (in.eof()) {
     return;
   }
-  auto it = sets.find(name);
-  if (in.fail() || it == sets.end()) {
+  auto it = globalData.sets.find(name);
+  if (in.fail() || it == globalData.sets.end()) {
     throw std::exception();
   }
 
   std::vector< Shape * > v;
   for (std::string str : it->second) {
-    v.push_back(shapes[str].get());
+    v.push_back(globalData.shapes[str].get());
   }
 
   saldaev::printFrame(saldaev::getBorders(v), out);

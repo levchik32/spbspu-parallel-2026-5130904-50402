@@ -402,3 +402,54 @@ void saldaev::handleFrameset(std::istream &in, std::ostream &out, GlobalData &gl
 
   saldaev::printFrame(saldaev::getBorders(v), out);
 }
+
+void saldaev::handleSpawn(std::istream &in, std::ostream &, GlobalData &globalData)
+{
+  std::string name;
+  size_t seed;
+  in >> name >> seed;
+  if (in.eof()) {
+    return;
+  }
+  if (in.fail() || globalData.processes.find(name) != globalData.processes.end()) {
+    throw std::exception();
+  }
+
+  int data_pipe[2];
+  int results_pipe[2];
+
+  if (pipe(data_pipe) == -1 || pipe(results_pipe) == -1) {
+    throw std::exception();
+  }
+
+  pid_t pid = fork();
+
+  if (!pid) {
+    if (close(data_pipe[1]) == -1 || close(results_pipe[0]) == -1) {
+      _exit(1);
+    }
+    if (dup2(data_pipe[0], STDIN_FILENO) == -1 || dup2(results_pipe[1], STDOUT_FILENO) == -1) {
+      _exit(1);
+    }
+    if (close(data_pipe[0]) == -1 || close(results_pipe[1]) == -1) {
+      _exit(1);
+    }
+
+    beCalculator();
+    _exit(0);
+  } else if (pid > 0) {
+    close(data_pipe[0]);
+    close(results_pipe[1]);
+
+    Calculations *calcs = new Calculations();
+    globalData.processes[name] = std::make_pair(calcs, data_pipe[1]);
+
+    std::thread(readerLoop, results_pipe[0], calcs).detach();
+  } else {
+    close(data_pipe[0]);
+    close(data_pipe[1]);
+    close(results_pipe[0]);
+    close(results_pipe[1]);
+    throw std::exception();
+  }
+}

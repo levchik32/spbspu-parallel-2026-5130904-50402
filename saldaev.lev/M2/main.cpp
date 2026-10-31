@@ -168,6 +168,8 @@ namespace saldaev
     long long elapsed_ms;
   };
 
+  using Calculations = std::map< long long, Calculation >;
+
   struct ProcessState
   {
     Calculations *calcs;
@@ -176,7 +178,6 @@ namespace saldaev
     pid_t pid;
   };
 
-  using Calculations = std::map< long long, Calculation >;
   using Processes = std::map< std::string, ProcessState >;
   using Shapes = std::map< std::string, std::unique_ptr< Shape > >;
   using Sets = std::map< std::string, std::vector< std::string > >;
@@ -319,6 +320,9 @@ namespace saldaev
         return;
       }
 
+      std::cout.write(reinterpret_cast< const char * >(&id), sizeof(long long));
+      std::cout.flush();
+
       auto start = std::chrono::steady_clock::now();
 
       std::pair< double, double > result = area(shapes, threads, tries, seed);
@@ -335,7 +339,54 @@ namespace saldaev
     }
   }
 
-  void readerLoop(int fd, Calculations *calcs);
+  void readerLoop(int fd, Calculations *calcs)
+  {
+    while (true) {
+      long long calc_id;
+      size_t total_read = 0;
+      char *buf = reinterpret_cast< char * >(&calc_id);
+
+      while (total_read < sizeof(long long)) {
+        ssize_t n = read(fd, buf + total_read, sizeof(long long) - total_read);
+        if (n > 0) {
+          total_read += n;
+        } else if (n == 0) {
+          return;
+        } else {
+          if (errno == EINTR)
+            continue;
+          return;
+        }
+      }
+
+      Calculation &calc = (*calcs)[calc_id];
+      calc.status = CalcStatus::IN_PROGRESS;
+
+      ResultMsg msg;
+      total_read = 0;
+      buf = reinterpret_cast< char * >(&msg);
+
+      while (total_read < sizeof(ResultMsg)) {
+        ssize_t n = read(fd, buf + total_read, sizeof(ResultMsg) - total_read);
+        if (n > 0) {
+          total_read += n;
+        } else if (n == 0) {
+          return;
+        } else {
+          if (errno == EINTR)
+            continue;
+          return;
+        }
+      }
+
+      calc.area = msg.area;
+      calc.intersection = msg.intersection;
+      calc.elapsed_ms = msg.elapsed_ms;
+
+      std::this_thread::sleep_for(std::chrono::milliseconds(1));
+      calc.status = CalcStatus::DONE;
+    }
+  }
 
   bool send_data(int fd, const std::string &data)
   {

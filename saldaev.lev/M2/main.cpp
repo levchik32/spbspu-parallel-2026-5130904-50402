@@ -170,7 +170,18 @@ namespace saldaev
 
   using Calculations = std::map< long long, Calculation >;
   using Processes = std::map< std::string, std::pair< Calculations *, int > >;
-  using Name_to_id = std::map< std::string, long long >;
+  using Shapes = std::map< std::string, std::unique_ptr< Shape > >;
+  using Sets = std::map< std::string, std::vector< std::string > >;
+  using ShapeVector = ShapeVector;
+
+  struct GlobalData
+  {
+    Shapes shapes;
+    Sets sets;
+    Processes processes;
+    std::map< std::string, long long > name_to_id;
+    long long global_calc_id = 0;
+  };
 
   Frame getBorders(const std::vector< Shape * > &shapes)
   {
@@ -188,7 +199,7 @@ namespace saldaev
     return {min, max};
   }
 
-  Frame getBorders(std::vector< std::unique_ptr< Shape > > &shapes)
+  Frame getBorders(ShapeVector &shapes)
   {
     const double lim = std::numeric_limits< double >::infinity();
 
@@ -210,39 +221,299 @@ namespace saldaev
         << "(" << static_cast< long long >(fr.max.x) << " " << static_cast< long long >(fr.max.y) << ")\n";
   }
 
-  using Shapes = std::map< std::string, std::unique_ptr< Shape > >;
-  using Sets = std::map< std::string, std::vector< std::string > >;
-
-  struct GlobalData
+  std::pair< size_t, size_t > calculate(Frame frame, const ShapeVector &shapes, size_t tries, size_t seed)
   {
-    Shapes shapes;
-    Sets sets;
-    Processes processes;
-    std::map< std::string, long long > name_to_id;
-    long long global_calc_id = 0;
-  };
+    std::default_random_engine gen(seed);
+    std::uniform_real_distribution< double > width(frame.min.x, frame.max.x);
+    std::uniform_real_distribution< double > hight(frame.min.y, frame.max.y);
 
-  void handleCircle(std::istream &, std::ostream &, GlobalData &);
-  void handleEllipse(std::istream &, std::ostream &, GlobalData &);
-  void handleRotate(std::istream &, std::ostream &, GlobalData &);
-  void handleSet(std::istream &, std::ostream &, GlobalData &);
-  void handleShow(std::istream &, std::ostream &, GlobalData &);
-  void handleShowset(std::istream &, std::ostream &, GlobalData &);
-  void handleFrame(std::istream &, std::ostream &, GlobalData &);
-  void handleFrameset(std::istream &, std::ostream &, GlobalData &);
-  void handleSpawn(std::istream &, std::ostream &, GlobalData &);
+    size_t hits = 0;
+    size_t complete_hits = 0;
+
+    for (size_t i = 0; i < tries; ++i) {
+      const Point p{width(gen), hight(gen)};
+      bool in_all = true;
+      bool in_any = false;
+
+      for (size_t j = 0; j < shapes.size(); ++j) {
+        if (shapes[j]->contain(p)) {
+          in_any = true;
+        } else {
+          in_all = false;
+        }
+      }
+
+      if (in_any) {
+        hits++;
+        if (in_all) {
+          complete_hits++;
+        }
+      }
+    }
+
+    return {hits, complete_hits};
+  }
+
+  std::pair< double, double > area(ShapeVector &shapes, size_t threads, size_t tries, size_t seed)
+  {
+    std::vector< std::future< std::pair< size_t, size_t > > > futures;
+
+    const size_t tries_per_thread = tries / threads;
+    const size_t remainder = tries % threads;
+
+    Frame frame = getBorders(shapes);
+    for (size_t i = 0; i < threads; ++i) {
+      size_t part = tries_per_thread + (i < remainder ? 1 : 0);
+      futures.push_back(std::async(std::launch::async, calculate, frame, std::cref(shapes), part, seed + i));
+    }
+
+    size_t hits = 0;
+    size_t complete_hits = 0;
+    for (size_t i = 0; i < threads; i++) {
+      const std::pair< size_t, size_t > res = futures[i].get();
+      hits += res.first;
+      complete_hits += res.second;
+    }
+
+    const double frame_area = (frame.max.x - frame.min.x) * (frame.max.y - frame.min.y);
+    return {frame_area * (static_cast< double >(hits) / tries),
+            frame_area * (static_cast< double >(complete_hits) / tries)};
+  }
+
+  void workerLoop(size_t seed)
+  {
+    long long id;
+    while (std::cin >> id && id != -1) {
+      ShapeVector shapes;
+      std::string type;
+      long long n, x, y, rx, ry;
+      double a;
+      std::cin >> n;
+      for (size_t i = 0; i < n; ++i) {
+        std::cin >> type;
+        if (type == "C") {
+          std::cin >> rx >> x >> y;
+          shapes.push_back(std::make_unique< Circle >(rx, std::make_pair(x, y)));
+        } else if (type == "E") {
+          std::cin >> rx >> ry >> x >> y >> a;
+          shapes.push_back(std::make_unique< Ellipse >(rx, ry, std::make_pair(x, y), a));
+        }
+      }
+      long long threads, tries;
+      std::cin >> threads >> tries;
+
+      auto start = std::chrono::steady_clock::now();
+
+      std::pair< double, double > result = area(shapes, threads, tries, seed);
+
+      auto end = std::chrono::steady_clock::now();
+
+      ResultMsg msg;
+      msg.calc_id = id;
+      msg.area = result.first;
+      msg.intersection = result.second;
+      msg.elapsed_ms = std::chrono::duration_cast< std::chrono::milliseconds >(end - start).count();
+      std::cout.write(reinterpret_cast< const char * >(&msg), sizeof(ResultMsg));
+      std::cout.flush();
+    }
+  }
+
+  void readerLoop(int fd, Calculations *calcs);
+
+  void handleCircle(std::istream &in, std::ostream &, GlobalData &globalData)
+  {
+    std::string name;
+    long long r, x, y;
+    in >> name >> r >> x >> y;
+    if (in.eof()) {
+      return;
+    }
+    if (in.fail() || r <= 0 || globalData.shapes.find(name) != globalData.shapes.end()) {
+      throw std::exception();
+    }
+    globalData.shapes[name] = std::make_unique< Circle >(r, std::make_pair(x, y));
+  }
+
+  void handleEllipse(std::istream &in, std::ostream &, GlobalData &globalData)
+  {
+    std::string name;
+    long long rx, ry, x, y;
+    in >> name >> rx >> ry >> x >> y;
+    if (in.eof()) {
+      return;
+    }
+    if (in.fail() || rx <= 0 || ry <= 0 || globalData.shapes.find(name) != globalData.shapes.end()) {
+      throw std::exception();
+    }
+    globalData.shapes[name] = std::make_unique< Ellipse >(rx, ry, std::make_pair(x, y));
+  }
+
+  void handleRotate(std::istream &in, std::ostream &, GlobalData &globalData)
+  {
+    std::string name;
+    double ksi;
+    in >> name >> ksi;
+    if (in.eof()) {
+      return;
+    }
+    auto it = globalData.shapes.find(name);
+    if (in.fail() || it == globalData.shapes.end()) {
+      throw std::exception();
+    }
+    it->second->rotate(ksi);
+  }
+
+  void handleSet(std::istream &in, std::ostream &, GlobalData &globalData)
+  {
+    std::string name;
+    size_t n;
+    in >> name >> n;
+    if (in.eof()) {
+      return;
+    }
+    if (in.fail() || globalData.sets.find(name) != globalData.sets.end()) {
+      throw std::exception();
+    }
+    std::string shape;
+    std::vector< std::string > v;
+    for (size_t i = 0; i < n; ++i) {
+      in >> shape;
+      if (globalData.shapes.find(shape) != globalData.shapes.end()) {
+        v.push_back(shape);
+      } else {
+        throw std::exception();
+      }
+    }
+    if (in.eof()) {
+      return;
+    }
+
+    globalData.sets[name] = v;
+  }
+
+  void handleShow(std::istream &in, std::ostream &out, GlobalData &globalData)
+  {
+    std::string name;
+    in >> name;
+    if (in.eof()) {
+      return;
+    }
+    auto it = globalData.shapes.find(name);
+    if (in.fail() || it == globalData.shapes.end()) {
+      throw std::exception();
+    }
+
+    out << it->second->toOutputData() << "\n";
+  }
+
+  void handleShowset(std::istream &in, std::ostream &out, GlobalData &globalData)
+  {
+    std::string name;
+    in >> name;
+    if (in.eof()) {
+      return;
+    }
+    auto it = globalData.sets.find(name);
+    if (in.fail() || it == globalData.sets.end()) {
+      throw std::exception();
+    }
+
+    for (std::string str : it->second) {
+      out << globalData.shapes.at(str)->toOutputData() << "\n";
+    }
+  }
+
+  void handleFrame(std::istream &in, std::ostream &out, GlobalData &globalData)
+  {
+    std::string name;
+    in >> name;
+    if (in.eof()) {
+      return;
+    }
+    auto it = globalData.shapes.find(name);
+    if (in.fail() || it == globalData.shapes.end()) {
+      throw std::exception();
+    }
+
+    printFrame(it->second->boundingFrame(), out);
+  }
+
+  void handleFrameset(std::istream &in, std::ostream &out, GlobalData &globalData)
+  {
+    std::string name;
+    in >> name;
+    if (in.eof()) {
+      return;
+    }
+    auto it = globalData.sets.find(name);
+    if (in.fail() || it == globalData.sets.end()) {
+      throw std::exception();
+    }
+
+    std::vector< Shape * > v;
+    for (std::string str : it->second) {
+      v.push_back(globalData.shapes[str].get());
+    }
+
+    printFrame(saldaev::getBorders(v), out);
+  }
+
+  void handleSpawn(std::istream &in, std::ostream &, GlobalData &globalData)
+  {
+    std::string name;
+    size_t seed;
+    in >> name >> seed;
+    if (in.eof()) {
+      return;
+    }
+    if (in.fail() || globalData.processes.find(name) != globalData.processes.end()) {
+      throw std::exception();
+    }
+
+    int data_pipe[2];
+    int results_pipe[2];
+
+    if (pipe(data_pipe) == -1 || pipe(results_pipe) == -1) {
+      throw std::exception();
+    }
+
+    pid_t pid = fork();
+
+    if (!pid) {
+      if (close(data_pipe[1]) == -1 || close(results_pipe[0]) == -1) {
+        _exit(1);
+      }
+      if (dup2(data_pipe[0], STDIN_FILENO) == -1 || dup2(results_pipe[1], STDOUT_FILENO) == -1) {
+        _exit(1);
+      }
+      if (close(data_pipe[0]) == -1 || close(results_pipe[1]) == -1) {
+        _exit(1);
+      }
+
+      workerLoop(seed);
+      _exit(0);
+    } else if (pid > 0) {
+      close(data_pipe[0]);
+      close(results_pipe[1]);
+
+      Calculations *calcs = new Calculations();
+      globalData.processes[name] = std::make_pair(calcs, data_pipe[1]);
+
+      std::thread(readerLoop, results_pipe[0], calcs).detach();
+    } else {
+      close(data_pipe[0]);
+      close(data_pipe[1]);
+      close(results_pipe[0]);
+      close(results_pipe[1]);
+      throw std::exception();
+    }
+  }
+
   void handleAreaOn(std::istream &, std::ostream &, GlobalData &);
   void handleStatus(std::istream &, std::ostream &, GlobalData &);
   void handleWait(std::istream &, std::ostream &, GlobalData &);
   void handleTimeout(std::istream &, std::ostream &, GlobalData &);
   void handleKill(std::istream &, std::ostream &, GlobalData &);
-
-  void workerLoop(size_t seed);
-  void readerLoop(int fd, Calculations *calcs);
-  std::pair< double, double > area(std::vector< std::unique_ptr< Shape > > &shapes, size_t threads, size_t tries,
-                                   size_t seed);
-  std::pair< size_t, size_t > calculate(Frame frame, const std::vector< std::unique_ptr< Shape > > &shapes,
-                                        size_t tries, size_t seed);
 }
 
 int main()
@@ -285,292 +556,4 @@ int main()
     std::cin.clear();
     std::cin.ignore(std::numeric_limits< std::streamsize >::max(), '\n');
   }
-}
-
-void saldaev::handleCircle(std::istream &in, std::ostream &, GlobalData &globalData)
-{
-  std::string name;
-  long long r, x, y;
-  in >> name >> r >> x >> y;
-  if (in.eof()) {
-    return;
-  }
-  if (in.fail() || r <= 0 || globalData.shapes.find(name) != globalData.shapes.end()) {
-    throw std::exception();
-  }
-  globalData.shapes[name] = std::make_unique< Circle >(r, std::make_pair(x, y));
-}
-
-void saldaev::handleEllipse(std::istream &in, std::ostream &, GlobalData &globalData)
-{
-  std::string name;
-  long long rx, ry, x, y;
-  in >> name >> rx >> ry >> x >> y;
-  if (in.eof()) {
-    return;
-  }
-  if (in.fail() || rx <= 0 || ry <= 0 || globalData.shapes.find(name) != globalData.shapes.end()) {
-    throw std::exception();
-  }
-  globalData.shapes[name] = std::make_unique< Ellipse >(rx, ry, std::make_pair(x, y));
-}
-
-void saldaev::handleRotate(std::istream &in, std::ostream &, GlobalData &globalData)
-{
-  std::string name;
-  double ksi;
-  in >> name >> ksi;
-  if (in.eof()) {
-    return;
-  }
-  auto it = globalData.shapes.find(name);
-  if (in.fail() || it == globalData.shapes.end()) {
-    throw std::exception();
-  }
-  it->second->rotate(ksi);
-}
-
-void saldaev::handleSet(std::istream &in, std::ostream &, GlobalData &globalData)
-{
-  std::string name;
-  size_t n;
-  in >> name >> n;
-  if (in.eof()) {
-    return;
-  }
-  if (in.fail() || globalData.sets.find(name) != globalData.sets.end()) {
-    throw std::exception();
-  }
-  std::string shape;
-  std::vector< std::string > v;
-  for (size_t i = 0; i < n; ++i) {
-    in >> shape;
-    if (globalData.shapes.find(shape) != globalData.shapes.end()) {
-      v.push_back(shape);
-    } else {
-      throw std::exception();
-    }
-  }
-  if (in.eof()) {
-    return;
-  }
-
-  globalData.sets[name] = v;
-}
-
-void saldaev::handleShow(std::istream &in, std::ostream &out, GlobalData &globalData)
-{
-  std::string name;
-  in >> name;
-  if (in.eof()) {
-    return;
-  }
-  auto it = globalData.shapes.find(name);
-  if (in.fail() || it == globalData.shapes.end()) {
-    throw std::exception();
-  }
-
-  out << it->second->toOutputData() << "\n";
-}
-
-void saldaev::handleShowset(std::istream &in, std::ostream &out, GlobalData &globalData)
-{
-  std::string name;
-  in >> name;
-  if (in.eof()) {
-    return;
-  }
-  auto it = globalData.sets.find(name);
-  if (in.fail() || it == globalData.sets.end()) {
-    throw std::exception();
-  }
-
-  for (std::string str : it->second) {
-    out << globalData.shapes.at(str)->toOutputData() << "\n";
-  }
-}
-
-void saldaev::handleFrame(std::istream &in, std::ostream &out, GlobalData &globalData)
-{
-  std::string name;
-  in >> name;
-  if (in.eof()) {
-    return;
-  }
-  auto it = globalData.shapes.find(name);
-  if (in.fail() || it == globalData.shapes.end()) {
-    throw std::exception();
-  }
-
-  saldaev::printFrame(it->second->boundingFrame(), out);
-}
-
-void saldaev::handleFrameset(std::istream &in, std::ostream &out, GlobalData &globalData)
-{
-  std::string name;
-  in >> name;
-  if (in.eof()) {
-    return;
-  }
-  auto it = globalData.sets.find(name);
-  if (in.fail() || it == globalData.sets.end()) {
-    throw std::exception();
-  }
-
-  std::vector< Shape * > v;
-  for (std::string str : it->second) {
-    v.push_back(globalData.shapes[str].get());
-  }
-
-  saldaev::printFrame(saldaev::getBorders(v), out);
-}
-
-void saldaev::handleSpawn(std::istream &in, std::ostream &, GlobalData &globalData)
-{
-  std::string name;
-  size_t seed;
-  in >> name >> seed;
-  if (in.eof()) {
-    return;
-  }
-  if (in.fail() || globalData.processes.find(name) != globalData.processes.end()) {
-    throw std::exception();
-  }
-
-  int data_pipe[2];
-  int results_pipe[2];
-
-  if (pipe(data_pipe) == -1 || pipe(results_pipe) == -1) {
-    throw std::exception();
-  }
-
-  pid_t pid = fork();
-
-  if (!pid) {
-    if (close(data_pipe[1]) == -1 || close(results_pipe[0]) == -1) {
-      _exit(1);
-    }
-    if (dup2(data_pipe[0], STDIN_FILENO) == -1 || dup2(results_pipe[1], STDOUT_FILENO) == -1) {
-      _exit(1);
-    }
-    if (close(data_pipe[0]) == -1 || close(results_pipe[1]) == -1) {
-      _exit(1);
-    }
-
-    workerLoop(seed);
-    _exit(0);
-  } else if (pid > 0) {
-    close(data_pipe[0]);
-    close(results_pipe[1]);
-
-    Calculations *calcs = new Calculations();
-    globalData.processes[name] = std::make_pair(calcs, data_pipe[1]);
-
-    std::thread(readerLoop, results_pipe[0], calcs).detach();
-  } else {
-    close(data_pipe[0]);
-    close(data_pipe[1]);
-    close(results_pipe[0]);
-    close(results_pipe[1]);
-    throw std::exception();
-  }
-}
-
-void saldaev::workerLoop(size_t seed)
-{
-  long long id;
-  while (std::cin >> id && id != -1) {
-    std::vector< std::unique_ptr< Shape > > shapes;
-    std::string type;
-    long long n, x, y, rx, ry;
-    double a;
-    std::cin >> n;
-    for (size_t i = 0; i < n; ++i) {
-      std::cin >> type;
-      if (type == "C") {
-        std::cin >> rx >> x >> y;
-        shapes.push_back(std::make_unique< Circle >(rx, std::make_pair(x, y)));
-      } else if (type == "E") {
-        std::cin >> rx >> ry >> x >> y >> a;
-        shapes.push_back(std::make_unique< Ellipse >(rx, ry, std::make_pair(x, y), a));
-      }
-    }
-    long long threads, tries;
-    std::cin >> threads >> tries;
-
-    auto start = std::chrono::steady_clock::now();
-
-    std::pair< double, double > result = area(shapes, threads, tries, seed);
-
-    auto end = std::chrono::steady_clock::now();
-
-    ResultMsg msg;
-    msg.calc_id = id;
-    msg.area = result.first;
-    msg.intersection = result.second;
-    msg.elapsed_ms = std::chrono::duration_cast< std::chrono::milliseconds >(end - start).count();
-    std::cout.write(reinterpret_cast< const char * >(&msg), sizeof(ResultMsg));
-    std::cout.flush();
-  }
-}
-
-std::pair< double, double > saldaev::area(std::vector< std::unique_ptr< Shape > > &shapes, size_t threads, size_t tries,
-                                          size_t seed)
-{
-  std::vector< std::future< std::pair< size_t, size_t > > > futures;
-
-  const size_t tries_per_thread = tries / threads;
-  const size_t remainder = tries % threads;
-
-  Frame frame = getBorders(shapes);
-  for (size_t i = 0; i < threads; ++i) {
-    size_t part = tries_per_thread + (i < remainder ? 1 : 0);
-    futures.push_back(std::async(std::launch::async, calculate, frame, std::cref(shapes), part, seed + i));
-  }
-
-  size_t hits = 0;
-  size_t complete_hits = 0;
-  for (size_t i = 0; i < threads; i++) {
-    const std::pair< size_t, size_t > res = futures[i].get();
-    hits += res.first;
-    complete_hits += res.second;
-  }
-
-  const double frame_area = (frame.max.x - frame.min.x) * (frame.max.y - frame.min.y);
-  return {frame_area * (static_cast< double >(hits) / tries),
-          frame_area * (static_cast< double >(complete_hits) / tries)};
-}
-
-std::pair< size_t, size_t > saldaev::calculate(Frame frame, const std::vector< std::unique_ptr< Shape > > &shapes,
-                                               size_t tries, size_t seed)
-{
-  std::default_random_engine gen(seed);
-  std::uniform_real_distribution< double > width(frame.min.x, frame.max.x);
-  std::uniform_real_distribution< double > hight(frame.min.y, frame.max.y);
-
-  size_t hits = 0;
-  size_t complete_hits = 0;
-
-  for (size_t i = 0; i < tries; ++i) {
-    const Point p{width(gen), hight(gen)};
-    bool in_all = true;
-    bool in_any = false;
-
-    for (size_t j = 0; j < shapes.size(); ++j) {
-      if (shapes[j]->contain(p)) {
-        in_any = true;
-      } else {
-        in_all = false;
-      }
-    }
-
-    if (in_any) {
-      hits++;
-      if (in_all) {
-        complete_hits++;
-      }
-    }
-  }
-
-  return {hits, complete_hits};
 }

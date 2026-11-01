@@ -11,6 +11,7 @@
 #include <string>
 #include <thread>
 #include <unistd.h>
+#include <cctype>
 #include <vector>
 
 namespace saldaev {
@@ -351,6 +352,11 @@ namespace saldaev {
         if (n > 0) {
           total_read += n;
         } else if (n == 0) {
+          for (auto &pair : *calcs) {
+            if (pair.second.status == CalcStatus::QUEUED || pair.second.status == CalcStatus::IN_PROGRESS) {
+              pair.second.status = CalcStatus::CANCELED;
+            }
+          }
           return;
         } else {
           if (errno == EINTR) {
@@ -437,6 +443,9 @@ namespace saldaev {
     long long x = std::stoll(tokens[2]);
     long long y = std::stoll(tokens[3]);
 
+    if (!std::isalpha(static_cast< unsigned char >(name[0]))) {
+      throw std::exception();
+    }
     if (r <= 0 || global_data.shapes.find(name) != global_data.shapes.end()) {
       throw std::exception();
     }
@@ -458,6 +467,9 @@ namespace saldaev {
     long long x = std::stoll(tokens[3]);
     long long y = std::stoll(tokens[4]);
 
+    if (!std::isalpha(static_cast< unsigned char >(name[0]))) {
+      throw std::exception();
+    }
     if (rx <= 0 || ry <= 0 || global_data.shapes.find(name) != global_data.shapes.end()) {
       throw std::exception();
     }
@@ -495,6 +507,10 @@ namespace saldaev {
 
     std::string name = tokens[0];
     long long n = std::stoll(tokens[1]);
+
+    if (!std::isalpha(static_cast< unsigned char >(name[0]))) {
+      throw std::exception();
+    }
     if (n < 0 || t_s != 2 + n) {
       throw std::exception();
     }
@@ -614,6 +630,9 @@ namespace saldaev {
     std::string name = tokens[0];
     const long long seed = std::stoll(tokens[1]);
 
+    if (!std::isalpha(static_cast< unsigned char >(name[0]))) {
+      throw std::exception();
+    }
     if (seed < 0 || global_data.processes.find(name) != global_data.processes.end()) {
       throw std::exception();
     }
@@ -678,6 +697,10 @@ namespace saldaev {
     const std::string s_name = tokens[2];
     const long long threads = std::stoll(tokens[3]);
     const long long tries = std::stoll(tokens[4]);
+
+    if (!std::isalpha(static_cast< unsigned char >(c_name[0]))) {
+      throw std::exception();
+    }
 
     auto it_p = global_data.processes.find(p_name);
     auto it_s = global_data.sets.find(s_name);
@@ -840,6 +863,8 @@ namespace saldaev {
 int main()
 {
   std::signal(SIGPIPE, SIG_IGN);
+  setvbuf(stdin, nullptr, _IONBF, 0);
+
   using Command = void (*)(std::istream &, std::ostream &, saldaev::GlobalData &);
   using Commands = std::map< std::string, Command >;
 

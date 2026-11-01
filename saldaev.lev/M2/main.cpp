@@ -727,12 +727,13 @@ namespace saldaev {
     std::string proc = global_data.calc_registry.at(name).proc_name;
     Calculation &calc = global_data.processes.at(proc).calcs->at(id);
 
-    if (calc.status == CalcStatus::IN_PROGRESS) {
-      out << proc << " <IN PROGRESS>\n";
-    } else if (calc.status == CalcStatus::DONE) {
+    if (calc.status == CalcStatus::DONE) {
       out << proc << ' ' << calc.elapsed_ms << ' ' << calc.area << '\n';
+
+    } else if (calc.status == CalcStatus::CANCELED) {
+      out << proc << " <CANCELED>\n";
     } else {
-      throw std::exception();
+      out << proc << " <IN PROGRESS>\n";
     }
   }
 
@@ -755,14 +756,15 @@ namespace saldaev {
     std::string proc = global_data.calc_registry.at(name).proc_name;
     Calculation &calc = (*global_data.processes.at(proc).calcs)[id];
 
-    if (calc.status == CalcStatus::QUEUED) {
-      throw std::exception();
-    }
-
-    while (calc.status != CalcStatus::DONE) {
+    while (calc.status != CalcStatus::DONE && calc.status != CalcStatus::CANCELED) {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
-    out << proc << ' ' << calc.elapsed_ms << ' ' << calc.area << '\n';
+
+    if (calc.status == CalcStatus::DONE) {
+      out << proc << ' ' << calc.elapsed_ms << ' ' << calc.area << '\n';
+    } else {
+      out << proc << " <CANCELED>\n";
+    }
   }
 
   void handleTimeout(std::istream &in, std::ostream &out, global_data &global_data)
@@ -785,19 +787,19 @@ namespace saldaev {
     std::string proc = global_data.calc_registry.at(name).proc_name;
     Calculation &calc = global_data.processes.at(proc).calcs->at(id);
 
-    if (calc.status == CalcStatus::QUEUED) {
-      throw std::exception();
+    long long time_passed = 0;
+    while (calc.status != CalcStatus::DONE && calc.status != CalcStatus::CANCELED && time_passed < waitTime) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      time_passed += 10;
     }
 
-    long long timePassed = 0;
-    while (calc.status != CalcStatus::DONE && timePassed < waitTime) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(10));
-      timePassed += 10;
-    }
-    if (calc.status != CalcStatus::DONE) {
+    if (calc.status == CalcStatus::DONE) {
+      out << proc << ' ' << calc.elapsed_ms << ' ' << calc.area << '\n';
+    } else if (calc.status == CalcStatus::CANCELED) {
+      out << proc << " <CANCELED>\n";
+    } else {
       out << proc << " <IN PROGRESS>\n";
     }
-    out << proc << ' ' << calc.elapsed_ms << ' ' << calc.area << '\n';
   }
 
   void handleKill(std::istream &in, std::ostream &, global_data &global_data)

@@ -13,25 +13,21 @@
 #include <unistd.h>
 #include <vector>
 
-namespace saldaev
-{
-  struct Point
-  {
+namespace saldaev {
+  struct Point {
     double x, y;
   };
 
-  struct Frame
-  {
+  struct Frame {
     Point min, max;
   };
 
-  struct Shape
-  {
+  struct Shape {
     std::pair< long long, long long > position;
     explicit Shape(std::pair< long long, long long > p):
       position{p}
     {}
-    virtual bool contain(Point p) const noexcept = 0;
+    virtual bool contain(const Point p) const noexcept = 0;
     virtual void rotate(double ksi) noexcept = 0;
     virtual Frame boundingFrame() const noexcept = 0;
     virtual ~Shape() = default;
@@ -39,8 +35,7 @@ namespace saldaev
     virtual std::string toOutputData() const = 0;
   };
 
-  struct Circle: Shape
-  {
+  struct Circle: Shape {
     long long radius;
 
     Circle(long long r, std::pair< long long, long long > p):
@@ -48,10 +43,10 @@ namespace saldaev
       radius{r}
     {}
 
-    bool contain(Point p) const noexcept override
+    bool contain(const Point p) const noexcept override
     {
-      double px = position.first;
-      double py = position.second;
+      const double px = position.first;
+      const double py = position.second;
       return (p.x - px) * (p.x - px) + (p.y - py) * (p.y - py) <= radius * radius;
     }
 
@@ -60,8 +55,8 @@ namespace saldaev
 
     Frame boundingFrame() const noexcept override
     {
-      double px = position.first;
-      double py = position.second;
+      const double px = position.first;
+      const double py = position.second;
       return {{px - radius, py - radius}, {px + radius, py + radius}};
     }
 
@@ -83,30 +78,29 @@ namespace saldaev
     }
   };
 
-  struct Ellipse: Shape
-  {
-    long long radiusX, radiusY;
+  struct Ellipse: Shape {
+    long long radius_x, radius_y;
     double angle;
 
     Ellipse(long long rx, long long ry, std::pair< long long, long long > p, double a = 0.0):
       Shape{p},
-      radiusX{rx},
-      radiusY{ry},
+      radius_x{rx},
+      radius_y{ry},
       angle{a}
     {}
 
-    bool contain(Point p) const noexcept override
+    bool contain(const Point p) const noexcept override
     {
-      double dx = p.x - position.first;
-      double dy = p.y - position.second;
-      double c = std::cos(angle);
-      double s = std::sin(angle);
+      const double dx = p.x - position.first;
+      const double dy = p.y - position.second;
+      const double c = std::cos(angle);
+      const double s = std::sin(angle);
 
-      double lx = c * dx + s * dy;
-      double ly = -s * dx + c * dy;
+      const double lx = c * dx + s * dy;
+      const double ly = -s * dx + c * dy;
 
-      double u = lx / radiusX;
-      double v = ly / radiusY;
+      const double u = lx / radius_x;
+      const double v = ly / radius_y;
       return u * u + v * v <= 1.0;
     }
 
@@ -117,14 +111,14 @@ namespace saldaev
 
     Frame boundingFrame() const noexcept override
     {
-      double c = std::cos(angle);
-      double s = std::sin(angle);
+      const double c = std::cos(angle);
+      const double s = std::sin(angle);
 
-      double hw = std::sqrt((radiusX * c) * (radiusX * c) + (radiusY * s) * (radiusY * s));
-      double hh = std::sqrt((radiusX * s) * (radiusX * s) + (radiusY * c) * (radiusY * c));
+      const double hw = std::sqrt((radius_x * c) * (radius_x * c) + (radius_y * s) * (radius_y * s));
+      const double hh = std::sqrt((radius_x * s) * (radius_x * s) + (radius_y * c) * (radius_y * c));
 
-      double px = position.first;
-      double py = position.second;
+      const double px = position.first;
+      const double py = position.second;
 
       return {{px - hw, py - hh}, {px + hw, py + hh}};
     }
@@ -132,8 +126,8 @@ namespace saldaev
     std::string toRawData() const override
     {
       std::string res = "E";
-      res += ' ' + std::to_string(radiusX);
-      res += ' ' + std::to_string(radiusY);
+      res += ' ' + std::to_string(radius_x);
+      res += ' ' + std::to_string(radius_y);
       res += ' ' + std::to_string(position.first);
       res += ' ' + std::to_string(position.second);
       res += ' ' + std::to_string(angle);
@@ -142,8 +136,8 @@ namespace saldaev
 
     std::string toOutputData() const override
     {
-      std::string res = std::to_string(radiusX);
-      res += ' ' + std::to_string(radiusY);
+      std::string res = std::to_string(radius_x);
+      res += ' ' + std::to_string(radius_y);
       res += " (" + std::to_string(position.first);
       res += ' ' + std::to_string(position.second);
       res += ") " + std::to_string(angle);
@@ -153,15 +147,13 @@ namespace saldaev
 
   enum class CalcStatus { QUEUED, IN_PROGRESS, DONE, CANCELED };
 
-  struct Calculation
-  {
+  struct Calculation {
     volatile CalcStatus status;
     double area;
     long long elapsed_ms;
   };
 
-  struct ResultMsg
-  {
+  struct ResultMsg {
     long long calc_id;
     double area;
     long long elapsed_ms;
@@ -169,16 +161,14 @@ namespace saldaev
 
   using Calculations = std::map< long long, Calculation >;
 
-  struct ProcessState
-  {
+  struct ProcessState {
     Calculations *calcs;
     int write_fd;
     int read_fd;
     pid_t pid;
   };
 
-  struct CalcRef
-  {
+  struct CalcRef {
     long long id;
     std::string proc_name;
   };
@@ -188,8 +178,7 @@ namespace saldaev
   using Sets = std::map< std::string, std::vector< std::string > >;
   using ShapeVector = std::vector< std::unique_ptr< Shape > >;
 
-  struct GlobalData
-  {
+  struct global_data {
     Shapes shapes;
     Sets sets;
     Processes processes;
@@ -204,8 +193,8 @@ namespace saldaev
     Point min{lim, lim};
     Point max{-lim, -lim};
 
-    for (const Shape *shape : shapes) {
-      Frame fr = shape->boundingFrame();
+    for (const Shape *const shape : shapes) {
+      const Frame fr = shape->boundingFrame();
       min = {std::min(min.x, fr.min.x), std::min(min.y, fr.min.y)};
       max = {std::max(max.x, fr.max.x), std::max(max.y, fr.max.y)};
     }
@@ -281,13 +270,13 @@ namespace saldaev
 
   void workerLoop(size_t seed)
   {
-    long long id;
+    long long id = 0;
     while (std::cin >> id) {
       ShapeVector shapes;
       std::string type;
-      size_t n;
-      long long x, y, rx, ry;
-      double a;
+      size_t n = 0;
+      long long x = 0, y = 0, rx = 0, ry = 0;
+      double a = 0.0;
       std::cin >> n;
       for (size_t i = 0; i < n; ++i) {
         std::cin >> type;
@@ -305,7 +294,7 @@ namespace saldaev
           shapes.push_back(std::make_unique< Ellipse >(rx, ry, std::make_pair(x, y), a));
         }
       }
-      long long threads, tries;
+      long long threads = 0, tries = 0;
       std::cin >> threads >> tries;
       if (std::cin.fail()) {
         return;
@@ -316,7 +305,7 @@ namespace saldaev
 
       auto start = std::chrono::steady_clock::now();
 
-      double result = area(shapes, threads, tries, seed);
+      const double result = area(shapes, threads, tries, seed);
 
       auto end = std::chrono::steady_clock::now();
 
@@ -337,14 +326,15 @@ namespace saldaev
       char *buf = reinterpret_cast< char * >(&calc_id);
 
       while (total_read < sizeof(long long)) {
-        ssize_t n = read(fd, buf + total_read, sizeof(long long) - total_read);
+        const ssize_t n = read(fd, buf + total_read, sizeof(long long) - total_read);
         if (n > 0) {
           total_read += n;
         } else if (n == 0) {
           return;
         } else {
-          if (errno == EINTR)
+          if (errno == EINTR) {
             continue;
+          }
           return;
         }
       }
@@ -357,14 +347,15 @@ namespace saldaev
       buf = reinterpret_cast< char * >(&msg);
 
       while (total_read < sizeof(ResultMsg)) {
-        ssize_t n = read(fd, buf + total_read, sizeof(ResultMsg) - total_read);
+        const ssize_t n = read(fd, buf + total_read, sizeof(ResultMsg) - total_read);
         if (n > 0) {
           total_read += n;
         } else if (n == 0) {
           return;
         } else {
-          if (errno == EINTR)
+          if (errno == EINTR) {
             continue;
+          }
           return;
         }
       }
@@ -377,11 +368,11 @@ namespace saldaev
     }
   }
 
-  bool send_data(int fd, const std::string &data)
+  bool sendData(int fd, const std::string &data)
   {
     size_t total_sent = 0;
     while (total_sent < data.size()) {
-      ssize_t sent = write(fd, data.c_str() + total_sent, data.size() - total_sent);
+      const ssize_t sent = write(fd, data.c_str() + total_sent, data.size() - total_sent);
 
       if (sent == -1) {
         if (errno == EINTR) {
@@ -395,14 +386,15 @@ namespace saldaev
     return true;
   }
 
-  void clear_pipe(int fd)
+  void clearPipe(int fd)
   {
-    int flags = fcntl(fd, F_GETFL, 0);
+    const int flags = fcntl(fd, F_GETFL, 0);
     fcntl(fd, F_SETFL, flags | O_NONBLOCK);
 
-    char buf[1024];
+    const size_t BUF_SIZE = 1024;
+    char buf[BUF_SIZE];
     while (true) {
-      ssize_t n = read(fd, buf, sizeof(buf));
+      const ssize_t n = read(fd, buf, sizeof(buf));
       if (n <= 0) {
         break;
       }
@@ -431,7 +423,7 @@ namespace saldaev
     return tokens;
   }
 
-  void handleCircle(std::istream &in, std::ostream &, GlobalData &globalData)
+  void handleCircle(std::istream &in, std::ostream &, global_data &global_data)
   {
     std::string line;
     std::getline(in, line);
@@ -445,13 +437,13 @@ namespace saldaev
     long long x = std::stoll(tokens[2]);
     long long y = std::stoll(tokens[3]);
 
-    if (r <= 0 || globalData.shapes.find(name) != globalData.shapes.end()) {
+    if (r <= 0 || global_data.shapes.find(name) != global_data.shapes.end()) {
       throw std::exception();
     }
-    globalData.shapes[name] = std::make_unique< Circle >(r, std::make_pair(x, y));
+    global_data.shapes[name] = std::make_unique< Circle >(r, std::make_pair(x, y));
   }
 
-  void handleEllipse(std::istream &in, std::ostream &, GlobalData &globalData)
+  void handleEllipse(std::istream &in, std::ostream &, global_data &global_data)
   {
     std::string line;
     std::getline(in, line);
@@ -466,13 +458,13 @@ namespace saldaev
     long long x = std::stoll(tokens[3]);
     long long y = std::stoll(tokens[4]);
 
-    if (rx <= 0 || ry <= 0 || globalData.shapes.find(name) != globalData.shapes.end()) {
+    if (rx <= 0 || ry <= 0 || global_data.shapes.find(name) != global_data.shapes.end()) {
       throw std::exception();
     }
-    globalData.shapes[name] = std::make_unique< Ellipse >(rx, ry, std::make_pair(x, y));
+    global_data.shapes[name] = std::make_unique< Ellipse >(rx, ry, std::make_pair(x, y));
   }
 
-  void handleRotate(std::istream &in, std::ostream &, GlobalData &globalData)
+  void handleRotate(std::istream &in, std::ostream &, global_data &global_data)
   {
     std::string line;
     std::getline(in, line);
@@ -484,14 +476,14 @@ namespace saldaev
     std::string name = tokens[0];
     double ksi = std::stod(tokens[1]);
 
-    auto it = globalData.shapes.find(name);
-    if (it == globalData.shapes.end()) {
+    auto it = global_data.shapes.find(name);
+    if (it == global_data.shapes.end()) {
       throw std::exception();
     }
     it->second->rotate(ksi);
   }
 
-  void handleSet(std::istream &in, std::ostream &, GlobalData &globalData)
+  void handleSet(std::istream &in, std::ostream &, global_data &global_data)
   {
     std::string line;
     std::getline(in, line);
@@ -506,7 +498,7 @@ namespace saldaev
     if (n < 0 || t_s != 2 + n) {
       throw std::exception();
     }
-    if (globalData.sets.find(name) != globalData.sets.end()) {
+    if (global_data.sets.find(name) != global_data.sets.end()) {
       throw std::exception();
     }
 
@@ -514,7 +506,7 @@ namespace saldaev
     std::vector< std::string > v;
     for (long long i = 0; i < n; ++i) {
       shape = tokens[2 + i];
-      if (globalData.shapes.find(shape) != globalData.shapes.end()) {
+      if (global_data.shapes.find(shape) != global_data.shapes.end()) {
         v.push_back(shape);
       } else {
         throw std::exception();
@@ -524,10 +516,10 @@ namespace saldaev
       return;
     }
 
-    globalData.sets[name] = v;
+    global_data.sets[name] = v;
   }
 
-  void handleShow(std::istream &in, std::ostream &out, GlobalData &globalData)
+  void handleShow(std::istream &in, std::ostream &out, global_data &global_data)
   {
     std::string line;
     std::getline(in, line);
@@ -538,15 +530,15 @@ namespace saldaev
 
     std::string name = tokens[0];
 
-    auto it = globalData.shapes.find(name);
-    if (it == globalData.shapes.end()) {
+    auto it = global_data.shapes.find(name);
+    if (it == global_data.shapes.end()) {
       throw std::exception();
     }
 
     out << it->second->toOutputData() << "\n";
   }
 
-  void handleShowset(std::istream &in, std::ostream &out, GlobalData &globalData)
+  void handleShowset(std::istream &in, std::ostream &out, global_data &global_data)
   {
     std::string line;
     std::getline(in, line);
@@ -557,17 +549,17 @@ namespace saldaev
 
     std::string name = tokens[0];
 
-    auto it = globalData.sets.find(name);
-    if (it == globalData.sets.end()) {
+    auto it = global_data.sets.find(name);
+    if (it == global_data.sets.end()) {
       throw std::exception();
     }
 
     for (std::string str : it->second) {
-      out << globalData.shapes.at(str)->toOutputData() << "\n";
+      out << global_data.shapes.at(str)->toOutputData() << "\n";
     }
   }
 
-  void handleFrame(std::istream &in, std::ostream &out, GlobalData &globalData)
+  void handleFrame(std::istream &in, std::ostream &out, global_data &global_data)
   {
     std::string line;
     std::getline(in, line);
@@ -578,15 +570,15 @@ namespace saldaev
 
     std::string name = tokens[0];
 
-    auto it = globalData.shapes.find(name);
-    if (it == globalData.shapes.end()) {
+    auto it = global_data.shapes.find(name);
+    if (it == global_data.shapes.end()) {
       throw std::exception();
     }
 
     printFrame(it->second->boundingFrame(), out);
   }
 
-  void handleFrameset(std::istream &in, std::ostream &out, GlobalData &globalData)
+  void handleFrameset(std::istream &in, std::ostream &out, global_data &global_data)
   {
     std::string line;
     std::getline(in, line);
@@ -597,20 +589,20 @@ namespace saldaev
 
     std::string name = tokens[0];
 
-    auto it = globalData.sets.find(name);
-    if (it == globalData.sets.end()) {
+    auto it = global_data.sets.find(name);
+    if (it == global_data.sets.end()) {
       throw std::exception();
     }
 
     std::vector< Shape * > v;
     for (std::string str : it->second) {
-      v.push_back(globalData.shapes[str].get());
+      v.push_back(global_data.shapes[str].get());
     }
 
     printFrame(saldaev::getBorders(v), out);
   }
 
-  void handleSpawn(std::istream &in, std::ostream &, GlobalData &globalData)
+  void handleSpawn(std::istream &in, std::ostream &, global_data &global_data)
   {
     std::string line;
     std::getline(in, line);
@@ -622,7 +614,7 @@ namespace saldaev
     std::string name = tokens[0];
     long long seed = std::stoll(tokens[1]);
 
-    if (seed < 0 || globalData.processes.find(name) != globalData.processes.end()) {
+    if (seed < 0 || global_data.processes.find(name) != global_data.processes.end()) {
       throw std::exception();
     }
 
@@ -659,7 +651,7 @@ namespace saldaev
       state.read_fd = data_pipe[0];
       state.pid = pid;
 
-      globalData.processes[name] = state;
+      global_data.processes[name] = state;
 
       std::thread(readerLoop, results_pipe[0], calcs).detach();
     } else {
@@ -671,7 +663,7 @@ namespace saldaev
     }
   }
 
-  void handleAreaOn(std::istream &in, std::ostream &, GlobalData &globalData)
+  void handleAreaOn(std::istream &in, std::ostream &, global_data &global_data)
   {
     std::string line;
     std::getline(in, line);
@@ -680,43 +672,43 @@ namespace saldaev
       throw std::exception();
     }
 
-    std::string pName = tokens[0];
-    std::string cName = tokens[1];
-    std::string sName = tokens[2];
+    std::string p_name = tokens[0];
+    std::string c_name = tokens[1];
+    std::string s_name = tokens[2];
     long long threads = std::stoll(tokens[3]);
     long long tries = std::stoll(tokens[4]);
 
-    auto itP = globalData.processes.find(pName);
-    auto itS = globalData.sets.find(sName);
-    if (itP == globalData.processes.end() || itS == globalData.sets.end() || threads <= 0 || tries <= 0) {
+    auto it_p = global_data.processes.find(p_name);
+    auto it_s = global_data.sets.find(s_name);
+    if (it_p == global_data.processes.end() || it_s == global_data.sets.end() || threads <= 0 || tries <= 0) {
       throw std::exception();
     }
-    if (globalData.calc_registry.find(cName) != globalData.calc_registry.end()) {
+    if (global_data.calc_registry.find(c_name) != global_data.calc_registry.end()) {
       throw std::exception();
     }
 
-    long long id = globalData.global_calc_id++;
-    globalData.calc_registry[cName] = {id, pName};
-    (*itP->second.calcs)[id] = {CalcStatus::QUEUED, 0.0, 0};
+    long long id = global_data.global_calc_id++;
+    global_data.calc_registry[c_name] = {id, p_name};
+    (*it_p->second.calcs)[id] = {CalcStatus::QUEUED, 0.0, 0};
 
-    int fd = itP->second.write_fd;
+    int fd = it_p->second.write_fd;
 
     std::string payload;
-    payload += std::to_string(id) + ' ' + std::to_string(itS->second.size()) + '\n';
+    payload += std::to_string(id) + ' ' + std::to_string(it_s->second.size()) + '\n';
 
-    for (const std::string &shape_name : itS->second) {
-      payload += globalData.shapes.at(shape_name)->toRawData() + '\n';
+    for (const std::string &shape_name : it_s->second) {
+      payload += global_data.shapes.at(shape_name)->toRawData() + '\n';
     }
 
     payload += std::to_string(threads) + ' ' + std::to_string(tries) + '\n';
 
-    if (!send_data(fd, payload)) {
-      (*itP->second.calcs)[id].status = CalcStatus::CANCELED;
+    if (!sendData(fd, payload)) {
+      (*it_p->second.calcs)[id].status = CalcStatus::CANCELED;
       throw std::exception();
     }
   }
 
-  void handleStatus(std::istream &in, std::ostream &out, GlobalData &globalData)
+  void handleStatus(std::istream &in, std::ostream &out, global_data &global_data)
   {
     std::string line;
     std::getline(in, line);
@@ -727,13 +719,13 @@ namespace saldaev
 
     std::string name = tokens[0];
 
-    if (globalData.calc_registry.find(name) == globalData.calc_registry.end()) {
+    if (global_data.calc_registry.find(name) == global_data.calc_registry.end()) {
       throw std::exception();
     }
 
-    size_t id = globalData.calc_registry.at(name).id;
-    std::string proc = globalData.calc_registry.at(name).proc_name;
-    Calculation &calc = globalData.processes.at(proc).calcs->at(id);
+    size_t id = global_data.calc_registry.at(name).id;
+    std::string proc = global_data.calc_registry.at(name).proc_name;
+    Calculation &calc = global_data.processes.at(proc).calcs->at(id);
 
     if (calc.status == CalcStatus::IN_PROGRESS) {
       out << proc << " <IN PROGRESS>\n";
@@ -744,7 +736,7 @@ namespace saldaev
     }
   }
 
-  void handleWait(std::istream &in, std::ostream &out, GlobalData &globalData)
+  void handleWait(std::istream &in, std::ostream &out, global_data &global_data)
   {
     std::string line;
     std::getline(in, line);
@@ -755,13 +747,13 @@ namespace saldaev
 
     std::string name = tokens[0];
 
-    if (globalData.calc_registry.find(name) == globalData.calc_registry.end()) {
+    if (global_data.calc_registry.find(name) == global_data.calc_registry.end()) {
       throw std::exception();
     }
 
-    size_t id = globalData.calc_registry.at(name).id;
-    std::string proc = globalData.calc_registry.at(name).proc_name;
-    Calculation &calc = (*globalData.processes.at(proc).calcs)[id];
+    size_t id = global_data.calc_registry.at(name).id;
+    std::string proc = global_data.calc_registry.at(name).proc_name;
+    Calculation &calc = (*global_data.processes.at(proc).calcs)[id];
 
     if (calc.status == CalcStatus::QUEUED) {
       throw std::exception();
@@ -773,7 +765,7 @@ namespace saldaev
     out << proc << ' ' << calc.elapsed_ms << ' ' << calc.area << '\n';
   }
 
-  void handleTimeout(std::istream &in, std::ostream &out, GlobalData &globalData)
+  void handleTimeout(std::istream &in, std::ostream &out, global_data &global_data)
   {
     std::string line;
     std::getline(in, line);
@@ -785,13 +777,13 @@ namespace saldaev
     std::string name = tokens[0];
     long long waitTime = std::stoll(tokens[1]);
 
-    if (waitTime <= 0 || globalData.calc_registry.find(name) == globalData.calc_registry.end()) {
+    if (waitTime <= 0 || global_data.calc_registry.find(name) == global_data.calc_registry.end()) {
       throw std::exception();
     }
 
-    size_t id = globalData.calc_registry.at(name).id;
-    std::string proc = globalData.calc_registry.at(name).proc_name;
-    Calculation &calc = globalData.processes.at(proc).calcs->at(id);
+    size_t id = global_data.calc_registry.at(name).id;
+    std::string proc = global_data.calc_registry.at(name).proc_name;
+    Calculation &calc = global_data.processes.at(proc).calcs->at(id);
 
     if (calc.status == CalcStatus::QUEUED) {
       throw std::exception();
@@ -808,7 +800,7 @@ namespace saldaev
     out << proc << ' ' << calc.elapsed_ms << ' ' << calc.area << '\n';
   }
 
-  void handleKill(std::istream &in, std::ostream &, GlobalData &globalData)
+  void handleKill(std::istream &in, std::ostream &, global_data &global_data)
   {
     std::string line;
     std::getline(in, line);
@@ -819,16 +811,17 @@ namespace saldaev
 
     std::string name = tokens[0];
 
-    if (globalData.processes.find(name) == globalData.processes.end()) {
+    if (global_data.processes.find(name) == global_data.processes.end()) {
       throw std::exception();
     }
 
-    ProcessState &proc = globalData.processes.at(name);
+    const ProcessState &proc = global_data.processes.at(name);
 
-    clear_pipe(proc.read_fd);
+    clearPipe(proc.read_fd);
 
     const char *kill_msg = "die pls\n";
-    write(proc.write_fd, kill_msg, 7);
+    const size_t KILL_MSG_LEN = 7;
+    write(proc.write_fd, kill_msg, KILL_MSG_LEN);
 
     for (auto &pair : *(proc.calcs)) {
       if (pair.second.status == CalcStatus::QUEUED) {
@@ -844,7 +837,7 @@ namespace saldaev
 int main()
 {
   std::signal(SIGPIPE, SIG_IGN);
-  using Command = void (*)(std::istream &, std::ostream &, saldaev::GlobalData &);
+  using Command = void (*)(std::istream &, std::ostream &, saldaev::global_data &);
   using Commands = std::map< std::string, Command >;
 
   Commands commands;
@@ -863,15 +856,14 @@ int main()
   commands["timeout"] = saldaev::handleTimeout;
   commands["kill"] = saldaev::handleKill;
 
-  saldaev::GlobalData globalData;
+  saldaev::global_data global_data;
 
   std::string cmd = "";
   while (std::cin >> cmd) {
-
     auto it = commands.find(cmd);
     if (it != commands.end()) {
       try {
-        it->second(std::cin, std::cout, globalData);
+        it->second(std::cin, std::cout, global_data);
       } catch (const std::exception &) {
         std::cout << "<INVALID COMMAND>\n";
       }

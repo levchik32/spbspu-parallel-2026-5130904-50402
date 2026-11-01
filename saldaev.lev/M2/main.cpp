@@ -55,7 +55,7 @@ namespace saldaev
       return (p.x - px) * (p.x - px) + (p.y - py) * (p.y - py) <= radius * radius;
     }
 
-    void rotate(double ksi) noexcept override
+    void rotate(double) noexcept override
     {}
 
     Frame boundingFrame() const noexcept override
@@ -157,7 +157,6 @@ namespace saldaev
   {
     volatile CalcStatus status;
     double area;
-    double intersection;
     long long elapsed_ms;
   };
 
@@ -205,7 +204,7 @@ namespace saldaev
     Point min{lim, lim};
     Point max{-lim, -lim};
 
-    for (Shape *shape : shapes) {
+    for (const Shape *shape : shapes) {
       Frame fr = shape->boundingFrame();
       min = {std::min(min.x, fr.min.x), std::min(min.y, fr.min.y)};
       max = {std::max(max.x, fr.max.x), std::max(max.y, fr.max.y)};
@@ -286,7 +285,8 @@ namespace saldaev
     while (std::cin >> id) {
       ShapeVector shapes;
       std::string type;
-      long long n, x, y, rx, ry;
+      size_t n;
+      long long x, y, rx, ry;
       double a;
       std::cin >> n;
       for (size_t i = 0; i < n; ++i) {
@@ -679,7 +679,7 @@ namespace saldaev
 
     size_t id = globalData.calc_registry.at(name).id;
     std::string proc = globalData.calc_registry.at(name).proc_name;
-    Calculation calc = globalData.processes.at(proc).calcs->at(id);
+    Calculation &calc = (*globalData.processes.at(proc).calcs)[id];
 
     if (calc.status == CalcStatus::QUEUED) {
       throw std::exception();

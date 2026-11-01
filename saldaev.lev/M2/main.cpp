@@ -789,7 +789,7 @@ namespace saldaev {
       throw std::exception();
     }
 
-    size_t timePassed = 0;
+    long long timePassed = 0;
     while (calc.status != CalcStatus::DONE && timePassed < waitTime) {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
       timePassed += 10;

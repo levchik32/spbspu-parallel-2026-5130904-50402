@@ -571,7 +571,7 @@ namespace saldaev {
       throw std::exception();
     }
 
-    for (const std::string str : it->second) {
+    for (const std::string &str : it->second) {
       out << global_data.shapes.at(str)->toOutputData() << "\n";
     }
   }
@@ -612,7 +612,7 @@ namespace saldaev {
     }
 
     std::vector< Shape * > v;
-    for (const std::string str : it->second) {
+    for (const std::string &str : it->second) {
       v.push_back(global_data.shapes[str].get());
     }
 

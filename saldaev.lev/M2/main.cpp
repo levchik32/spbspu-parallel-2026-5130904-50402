@@ -1,8 +1,10 @@
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <csignal>
 #include <fcntl.h>
 #include <future>
+#include <iomanip>
 #include <iostream>
 #include <limits>
 #include <map>
@@ -11,7 +13,6 @@
 #include <string>
 #include <thread>
 #include <unistd.h>
-#include <cctype>
 #include <vector>
 
 namespace saldaev {
@@ -439,9 +440,9 @@ namespace saldaev {
     }
 
     std::string name = tokens[0];
-    long long r = std::stoll(tokens[1]);
-    long long x = std::stoll(tokens[2]);
-    long long y = std::stoll(tokens[3]);
+    const long long r = std::stoll(tokens[1]);
+    const long long x = std::stoll(tokens[2]);
+    const long long y = std::stoll(tokens[3]);
 
     if (!std::isalpha(static_cast< unsigned char >(name[0]))) {
       throw std::exception();
@@ -462,10 +463,10 @@ namespace saldaev {
     }
 
     std::string name = tokens[0];
-    long long rx = std::stoll(tokens[1]);
-    long long ry = std::stoll(tokens[2]);
-    long long x = std::stoll(tokens[3]);
-    long long y = std::stoll(tokens[4]);
+    const long long rx = std::stoll(tokens[1]);
+    const long long ry = std::stoll(tokens[2]);
+    const long long x = std::stoll(tokens[3]);
+    const long long y = std::stoll(tokens[4]);
 
     if (!std::isalpha(static_cast< unsigned char >(name[0]))) {
       throw std::exception();
@@ -486,7 +487,7 @@ namespace saldaev {
     }
 
     std::string name = tokens[0];
-    double ksi = std::stod(tokens[1]);
+    const double ksi = std::stod(tokens[1]);
 
     auto it = global_data.shapes.find(name);
     if (it == global_data.shapes.end()) {
@@ -500,13 +501,13 @@ namespace saldaev {
     std::string line;
     std::getline(in, line);
     std::vector< std::string > tokens = parse(line);
-    long long t_s = tokens.size();
+    const long long t_s = tokens.size();
     if (t_s < 2) {
       throw std::exception();
     }
 
     std::string name = tokens[0];
-    long long n = std::stoll(tokens[1]);
+    const long long n = std::stoll(tokens[1]);
 
     if (!std::isalpha(static_cast< unsigned char >(name[0]))) {
       throw std::exception();
@@ -544,7 +545,7 @@ namespace saldaev {
       throw std::exception();
     }
 
-    std::string name = tokens[0];
+    const std::string name = tokens[0];
 
     auto it = global_data.shapes.find(name);
     if (it == global_data.shapes.end()) {
@@ -563,14 +564,14 @@ namespace saldaev {
       throw std::exception();
     }
 
-    std::string name = tokens[0];
+    const std::string name = tokens[0];
 
     auto it = global_data.sets.find(name);
     if (it == global_data.sets.end()) {
       throw std::exception();
     }
 
-    for (std::string str : it->second) {
+    for (const std::string str : it->second) {
       out << global_data.shapes.at(str)->toOutputData() << "\n";
     }
   }
@@ -584,7 +585,7 @@ namespace saldaev {
       throw std::exception();
     }
 
-    std::string name = tokens[0];
+    const std::string name = tokens[0];
 
     auto it = global_data.shapes.find(name);
     if (it == global_data.shapes.end()) {
@@ -603,7 +604,7 @@ namespace saldaev {
       throw std::exception();
     }
 
-    std::string name = tokens[0];
+    const std::string name = tokens[0];
 
     auto it = global_data.sets.find(name);
     if (it == global_data.sets.end()) {
@@ -611,7 +612,7 @@ namespace saldaev {
     }
 
     std::vector< Shape * > v;
-    for (std::string str : it->second) {
+    for (const std::string str : it->second) {
       v.push_back(global_data.shapes[str].get());
     }
 
@@ -711,7 +712,7 @@ namespace saldaev {
       throw std::exception();
     }
 
-    long long id = global_data.global_calc_id++;
+    const long long id = global_data.global_calc_id++;
     global_data.calc_registry[c_name] = {id, p_name};
     (*it_p->second.calcs)[id] = {CalcStatus::QUEUED, 0.0, 0};
 
@@ -801,7 +802,7 @@ namespace saldaev {
     }
 
     const std::string name = tokens[0];
-    long long wait_time = std::stoll(tokens[1]);
+    const long long wait_time = std::stoll(tokens[1]);
 
     if (wait_time <= 0 || global_data.calc_registry.find(name) == global_data.calc_registry.end()) {
       throw std::exception();
@@ -864,6 +865,7 @@ int main()
 {
   std::signal(SIGPIPE, SIG_IGN);
   setvbuf(stdin, nullptr, _IONBF, 0);
+  std::cout << std::fixed << std::setprecision(3);
 
   using Command = void (*)(std::istream &, std::ostream &, saldaev::GlobalData &);
   using Commands = std::map< std::string, Command >;

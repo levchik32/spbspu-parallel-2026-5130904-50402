@@ -14,6 +14,7 @@
 #include <thread>
 #include <unistd.h>
 #include <vector>
+#include <sys/wait.h>
 
 namespace saldaev {
   struct Point {
@@ -168,6 +169,8 @@ namespace saldaev {
     int write_fd;
     int read_fd;
     pid_t pid;
+    std::thread *reader;
+    bool killed = false;
   };
 
   struct CalcRef {
@@ -332,11 +335,13 @@ namespace saldaev {
         if (n > 0) {
           total_read += n;
         } else if (n == 0) {
+          close(fd);
           return;
         } else {
           if (errno == EINTR) {
             continue;
           }
+          close(fd);
           return;
         }
       }
@@ -358,11 +363,13 @@ namespace saldaev {
               pair.second.status = CalcStatus::CANCELED;
             }
           }
+          close(fd);
           return;
         } else {
           if (errno == EINTR) {
             continue;
           }
+          close(fd);
           return;
         }
       }
@@ -428,6 +435,30 @@ namespace saldaev {
     }
 
     return tokens;
+  }
+
+  void killProcess(ProcessState &proc)
+  {
+    clearPipe(proc.read_fd);
+
+    const char *const kill_msg = "die pls\n";
+    const size_t KILL_MSG_LEN = 7;
+    write(proc.write_fd, kill_msg, KILL_MSG_LEN);
+
+    proc.reader->join();
+
+    for (auto &pair : *(proc.calcs)) {
+      if (pair.second.status == CalcStatus::QUEUED) {
+        pair.second.status = CalcStatus::CANCELED;
+      }
+    }
+
+    proc.killed = true;
+
+    close(proc.read_fd);
+    close(proc.write_fd);
+
+    waitpid(proc.pid, NULL, 0);
   }
 
   void handleCircle(std::istream &in, std::ostream &, GlobalData &global_data)
@@ -641,7 +672,12 @@ namespace saldaev {
     int data_pipe[2];
     int results_pipe[2];
 
-    if (pipe(data_pipe) == -1 || pipe(results_pipe) == -1) {
+    if (pipe(data_pipe) == -1) {
+      throw std::exception();
+    }
+    if (pipe(results_pipe) == -1) {
+      close(data_pipe[1]);
+      close(data_pipe[0]);
       throw std::exception();
     }
 
@@ -658,14 +694,30 @@ namespace saldaev {
         _exit(1);
       }
 
+      for (auto &pair : global_data.processes) {
+        close(pair.second.read_fd);
+        close(pair.second.write_fd);
+      }
+
       workerLoop(seed);
       _exit(0);
     } else if (pid > 0) {
       close(results_pipe[1]);
 
       Calculations *calcs = new Calculations();
-
       ProcessState state;
+      try {
+        state.reader = new std::thread(readerLoop, results_pipe[0], calcs);
+      } catch (...) {
+        close(data_pipe[0]);
+        close(data_pipe[1]);
+        close(results_pipe[0]);
+        kill(pid, SIGKILL);
+        waitpid(pid, NULL, 0);
+        delete calcs;
+        throw;
+      }
+
       state.calcs = calcs;
       state.write_fd = data_pipe[1];
       state.read_fd = data_pipe[0];
@@ -673,7 +725,6 @@ namespace saldaev {
 
       global_data.processes[name] = state;
 
-      std::thread(readerLoop, results_pipe[0], calcs).detach();
     } else {
       close(data_pipe[0]);
       close(data_pipe[1]);
@@ -704,8 +755,12 @@ namespace saldaev {
     }
 
     auto it_p = global_data.processes.find(p_name);
+    if (it_p == global_data.processes.end() || it_p->second.killed) {
+      throw std::exception();
+    }
+
     auto it_s = global_data.sets.find(s_name);
-    if (it_p == global_data.processes.end() || it_s == global_data.sets.end() || threads <= 0 || tries <= 0) {
+    if (it_s == global_data.sets.end() || threads <= 0 || tries <= 0) {
       throw std::exception();
     }
     if (global_data.calc_registry.find(c_name) != global_data.calc_registry.end()) {
@@ -728,7 +783,7 @@ namespace saldaev {
     payload += std::to_string(threads) + ' ' + std::to_string(tries) + '\n';
 
     if (!sendData(fd, payload)) {
-      (*it_p->second.calcs)[id].status = CalcStatus::CANCELED;
+      killProcess(it_p->second);
       throw std::exception();
     }
   }
@@ -838,26 +893,13 @@ namespace saldaev {
 
     const std::string name = tokens[0];
 
-    if (global_data.processes.find(name) == global_data.processes.end()) {
+    auto it_p = global_data.processes.find(name);
+    if (it_p == global_data.processes.end() || it_p->second.killed) {
       throw std::exception();
     }
 
-    const ProcessState &proc = global_data.processes.at(name);
-
-    clearPipe(proc.read_fd);
-
-    const char *const kill_msg = "die pls\n";
-    const size_t KILL_MSG_LEN = 7;
-    write(proc.write_fd, kill_msg, KILL_MSG_LEN);
-
-    for (auto &pair : *(proc.calcs)) {
-      if (pair.second.status == CalcStatus::QUEUED) {
-        pair.second.status = CalcStatus::CANCELED;
-      }
-    }
-
-    close(proc.read_fd);
-    close(proc.write_fd);
+    ProcessState &proc = global_data.processes.at(name);
+    killProcess(proc);
   }
 }
 

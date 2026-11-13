@@ -235,13 +235,20 @@ namespace saldaev {
     std::uniform_real_distribution< double > width(frame.min.x, frame.max.x);
     std::uniform_real_distribution< double > hight(frame.min.y, frame.max.y);
 
+    std::vector< const Shape * > raw;
+    raw.reserve(shapes.size());
+    for (const auto &s : shapes) {
+      raw.push_back(s.get());
+    }
+
+    const size_t n = raw.size();
     size_t hits = 0;
 
     for (size_t i = 0; i < tries; ++i) {
       const Point p{width(gen), hight(gen)};
 
-      for (size_t j = 0; j < shapes.size(); ++j) {
-        if (shapes[j]->contain(p)) {
+      for (size_t j = 0; j < n; ++j) {
+        if (raw[j]->contain(p)) {
           hits++;
           break;
         }
@@ -470,7 +477,7 @@ namespace saldaev {
       throw std::exception();
     }
 
-    std::string name = tokens[0];
+    const std::string name = tokens[0];
     const long long r = std::stoll(tokens[1]);
     const long long x = std::stoll(tokens[2]);
     const long long y = std::stoll(tokens[3]);
@@ -489,11 +496,12 @@ namespace saldaev {
     std::string line;
     std::getline(in, line);
     std::vector< std::string > tokens = parse(line);
-    if (tokens.size() != 5) {
+    const size_t EXPECTED_ARGS = 5;
+    if (tokens.size() != EXPECTED_ARGS) {
       throw std::exception();
     }
 
-    std::string name = tokens[0];
+    const std::string name = tokens[0];
     const long long rx = std::stoll(tokens[1]);
     const long long ry = std::stoll(tokens[2]);
     const long long x = std::stoll(tokens[3]);
@@ -517,7 +525,7 @@ namespace saldaev {
       throw std::exception();
     }
 
-    std::string name = tokens[0];
+    const std::string name = tokens[0];
     const double ksi = std::stod(tokens[1]);
 
     auto it = global_data.shapes.find(name);
@@ -537,7 +545,7 @@ namespace saldaev {
       throw std::exception();
     }
 
-    std::string name = tokens[0];
+    const std::string name = tokens[0];
     const long long n = std::stoll(tokens[1]);
 
     if (!std::isalpha(static_cast< unsigned char >(name[0]))) {
@@ -659,7 +667,7 @@ namespace saldaev {
       throw std::exception();
     }
 
-    std::string name = tokens[0];
+    const std::string name = tokens[0];
     const long long seed = std::stoll(tokens[1]);
 
     if (!std::isalpha(static_cast< unsigned char >(name[0]))) {
